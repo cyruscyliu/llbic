@@ -12,9 +12,9 @@ class TestLLVMCompile(TestCase):
             'arch': 'mips',
             'kernel_src_dir': '/home/liuqiang/Desktop/linux-3.18.20'
         }
-        llvm_build = LLVMCompile(**kwargs)
-        status = llvm_build.setup()
+        llvm_compile = LLVMCompile(**kwargs)
+        status = llvm_compile.setup()
         if status is not None:
             print(status)
             return
-        llvm_build.perform()
+        llvm_compile.perform()
