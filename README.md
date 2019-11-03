@@ -5,13 +5,17 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 `build issues collection` and a learning material of LLVM compiler. BTW, `llbic` is short of LLVM Linux Build Issues
  Collection.
 
-## features
+## Features
 
-+ compiler `.S` and `.c` to bytecode and link them together (still bytecdoe), ported from [dr_checker](https://github.com/ucsb-seclab/dr_checker) which is a soundy vulnerablity detection tool for Linux Kernel drivers
++ compile `.S` and `.c` to bytecode and link them together (still bytecdoe), ported from [dr_checker](https://github.com/ucsb-seclab/dr_checker) which is a soundy vulnerablity detection tool for Linux Kernel drivers
 + arch specific and linux-version specific, meaning that the project will tell you the least patches to your requirements
 
+## Support List
+|arch|linux version|clang version|compile to bc|link all bc|
+|:---:|:---:|:---:|:---:|:---:|
+|mips|3.18.20|9|Y|Y|
 
-## others
+## Others
 
 ### port dr_checker to clang-9
 
