@@ -1,13 +1,13 @@
-## overview 
+# overview 
 
-#### specific
+### specific
 `mips`
 `3.18.20`
 
-#### buildable kernel
+### buildable kernel
 `linux-3.18.20 patched by OpenWrt`
 
-#### toolchains
+### toolchains
 `mips-openwrt-linux-`
 
 ### commands
@@ -17,9 +17,9 @@ make V=1 ARCH=mips CROSS_COMPILE=$STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro
 python3.7 -m unittest tests.test_llvm_build.TestLLVMBuild.test_mips_31820
 ```
 
-## issues
+# issues
 
-##### unexpected token at start of statement error
+### unexpected token at start of statement error
 
 ```text
 /home/liuqiang/Desktop/linux-3.18.20/kernel/bounds.c:18:2: error: unexpected token at start of statement
@@ -33,12 +33,12 @@ python3.7 -m unittest tests.test_llvm_build.TestLLVMBuild.test_mips_31820
 ^
 ```
 
-###### solutions: 
+##### solutions: 
 
 >KBuild abuses the asm statement to write to a file and clang chokes about these invalid asm statements. Hack it even more by fooling this is actual valid asm code. 
 >[Click and see details](https://blog.geekofia.in/android/patches/2019/05/20/unexpected-token-at-start-of-statement-patch.html).
 
-##### unsupported inline asm: input with type '__be32' (aka 'unsigned int') matching output with type 'unsigned short'
+### unsupported inline asm: input with type '__be32' (aka 'unsigned int') matching output with type 'unsigned short'
 
 ```text
 In file included from /home/liuqiang/Desktop/linux-3.18.20/kernel/cred.c:17:
@@ -63,23 +63,23 @@ In file included from /home/liuqiang/Desktop/linux-3.18.20/include/net/checksum.
 1 error generated.
 ```
 
-###### solutions
+##### solutions
 
 >[Click and see details.](https://www.linux-mips.org/archives/linux-mips/2015-02/msg00185.html)
 
-##### macro defined with named parameters which are not used in macro body, possible positional parameter found in body which will have no effect
+### macro defined with named parameters which are not used in macro body, possible positional parameter found in body which will have no effect
 
 ```text
 /home/liuqiang/Desktop/linux-3.18.20/arch/mips/include/asm/asmmacro.h:23:2: warning: macro defined with named parameters which are not used in macro body, possible positional parameter found in body which will have no effect
  .macro local_irq_enable reg=$8
 ```
 
-###### solutions
+##### solutions
 
 >Remove all unused macro argument reg=to.
 >[Click and see details.](https://github.com/Fuzion24/LLVM-Linux-Kernel/blob/74a384cc891239b953e545532a31df7f3c1d8f88/arch/mips/patches/mips-ias-remove-unused-macro-args.patch)
 
-##### expected STT_<TYPE_IN_UPPER_CASE>, '#<type>', '@<type>', '%<type>' or "<type>"
+### expected STT_<TYPE_IN_UPPER_CASE>, '#<type>', '@<type>', '%<type>' or "<type>"
 
 ```text
 /home/liuqiang/Desktop/linux-3.18.20/arch/mips/kernel/r4k_fpu.S:273:22: error: expected STT_<TYPE_IN_UPPER_CASE>, '#<type>', '@<type>', '%<type>' or "<type>"
@@ -87,12 +87,12 @@ In file included from /home/liuqiang/Desktop/linux-3.18.20/include/net/checksum.
                      ^
 ```
 
-###### solutions
+##### solutions
 
 >should be .type fault,@function
 >[Click and see details.](https://sourceware.org/binutils/docs/as/Type.html#Type)
 
-##### error: unknown instruction
+### error: unknown instruction
 
 ```text
 <instantiation>:6:2: error: unknown instruction
@@ -106,12 +106,12 @@ __BUILD_HANDLER adel ade ade silent _int
  ^
 ```
 
-###### solutions
+##### solutions
 
 >macro name is case sensitive
 >[Click and see details.](https://source.puri.sm/Librem5/linux-emcraft/commit/158d3b2ad18ca4570c9929b9b31d298d86fa2c02)
 
-##### unexpected token ,expected comma
+### unexpected token ,expected comma
 
 ```text
 /home/liuqiang/Desktop/linux-3.18.20/arch/mips/kernel/entry.S:170:25: error: unexpected token, expected comma
@@ -119,11 +119,11 @@ __BUILD_HANDLER adel ade ade silent _int
                         ^
 ```
 
-###### solutions
+##### solutions
 
 >MIPS_ISA_LEVEL_RAM is not defined, delete this line
 
-##### cast to union type from type 'unsigned short' not present in union
+### cast to union type from type 'unsigned short' not present in union
 
 ```text
 /home/liuqiang/Desktop/linux-3.18.20/arch/mips/kernel/branch.c:38:8: error: cast to union type from type 'unsigned short' not present in union
@@ -132,7 +132,7 @@ __BUILD_HANDLER adel ade ade silent _int
 1 error generated.
 ```
 
-###### solutions
+##### solutions
 
 >Remove a cast to the 'mips16e_instruction' union inside an if
 condition and instead do an assignment to a local
@@ -140,5 +140,5 @@ condition and instead do an assignment to a local
 statement and use this variable in the if condition.
 >[Click and see details.](vgithub.com/Fuzion24/LLVM-Linux-Kernel/blob/master/arch/mips/patches/ARCHIVE/mips-fix-cast-to-type-not-present-in-union.patch)
 
-## tree of bytecode
+# tree of bytecode
 Look at [here](../tests/mips_31820.tree).
