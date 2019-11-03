@@ -1,6 +1,6 @@
 # LLVM Linux Build Issues Collection
 
-I guess most of you have troubles comipling Linux kernel with LLVM, while the solutions to build issues are all over the internet, in a blog, in commit comments. The project is then aiming to put these solutions together as a `build issues collection` and a learning materail of compiler. BTW, `llbic` is short of LLVM Linux Build Issues Collection.
+I guess most of you have troubles compiling Linux kernel with LLVM, while the solutions to build issues are all over the internet, in a blog, in commit comments, etc. The project is then aiming to put these solutions together as a `build issues collection` and a learning material of LLVM compiler. BTW, `llbic` is short of LLVM Linux Build Issues Collection.
 
 ## features
 
