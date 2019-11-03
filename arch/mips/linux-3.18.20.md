@@ -141,4 +141,4 @@ statement and use this variable in the if condition.
 >[Click and see details.](vgithub.com/Fuzion24/LLVM-Linux-Kernel/blob/master/arch/mips/patches/ARCHIVE/mips-fix-cast-to-type-not-present-in-union.patch)
 
 # tree of bytecode
-Look at [here](../tests/mips_31820.tree).
+Look at [here](../../tests/mips_31820.tree).
