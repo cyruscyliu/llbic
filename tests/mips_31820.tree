@@ -1,0 +1,873 @@
+.
+├── arch
+│   └── mips
+│       ├── bcm47xx
+│       │   ├── board.llvm.bc
+│       │   ├── buttons.llvm.bc
+│       │   ├── irq.llvm.bc
+│       │   ├── leds.llvm.bc
+│       │   ├── nvram.llvm.bc
+│       │   ├── prom.llvm.bc
+│       │   ├── serial.llvm.bc
+│       │   ├── setup.llvm.bc
+│       │   ├── sprom.llvm.bc
+│       │   ├── time.llvm.bc
+│       │   └── workarounds.llvm.bc
+│       ├── fw
+│       │   └── lib
+│       │       └── cmdline.llvm.bc
+│       ├── kernel
+│       │   ├── asm-offsets.llvm.bc
+│       │   ├── branch.llvm.bc
+│       │   ├── cevt-r4k.llvm.bc
+│       │   ├── cpu-probe.llvm.bc
+│       │   ├── csrc-r4k.llvm.bc
+│       │   ├── entry.llvm.bc
+│       │   ├── genex.llvm.bc
+│       │   ├── head.llvm.bc
+│       │   ├── idle.llvm.bc
+│       │   ├── irq_cpu.llvm.bc
+│       │   ├── irq.llvm.bc
+│       │   ├── mips_ksyms.llvm.bc
+│       │   ├── module.llvm.bc
+│       │   ├── process.llvm.bc
+│       │   ├── proc.llvm.bc
+│       │   ├── prom.llvm.bc
+│       │   ├── ptrace.llvm.bc
+│       │   ├── r4k_fpu.llvm.bc
+│       │   ├── r4k_switch.llvm.bc
+│       │   ├── reset.llvm.bc
+│       │   ├── scall32-o32.llvm.bc
+│       │   ├── segment.llvm.bc
+│       │   ├── setup.llvm.bc
+│       │   ├── signal.llvm.bc
+│       │   ├── spram.llvm.bc
+│       │   ├── syscall.llvm.bc
+│       │   ├── time.llvm.bc
+│       │   ├── topology.llvm.bc
+│       │   ├── traps.llvm.bc
+│       │   ├── unaligned.llvm.bc
+│       │   ├── vdso.llvm.bc
+│       │   ├── vmlinux.lds.llvm.bc
+│       │   └── watch.llvm.bc
+│       ├── lib
+│       │   ├── ashldi3.llvm.bc
+│       │   ├── ashrdi3.llvm.bc
+│       │   ├── bitops.llvm.bc
+│       │   ├── cmpdi2.llvm.bc
+│       │   ├── csum_partial.llvm.bc
+│       │   ├── delay.llvm.bc
+│       │   ├── dump_tlb.llvm.bc
+│       │   ├── iomap.llvm.bc
+│       │   ├── iomap-pci.llvm.bc
+│       │   ├── lshrdi3.llvm.bc
+│       │   ├── memcpy.llvm.bc
+│       │   ├── memset.llvm.bc
+│       │   ├── mips-atomic.llvm.bc
+│       │   ├── strlen_user.llvm.bc
+│       │   ├── strncpy_user.llvm.bc
+│       │   ├── strnlen_user.llvm.bc
+│       │   ├── ucmpdi2.llvm.bc
+│       │   └── uncached.llvm.bc
+│       ├── math-emu
+│       │   ├── cp1emu.llvm.bc
+│       │   ├── dp_add.llvm.bc
+│       │   ├── dp_cmp.llvm.bc
+│       │   ├── dp_div.llvm.bc
+│       │   ├── dp_fint.llvm.bc
+│       │   ├── dp_flong.llvm.bc
+│       │   ├── dp_fsp.llvm.bc
+│       │   ├── dp_mul.llvm.bc
+│       │   ├── dp_simple.llvm.bc
+│       │   ├── dp_sqrt.llvm.bc
+│       │   ├── dp_sub.llvm.bc
+│       │   ├── dp_tint.llvm.bc
+│       │   ├── dp_tlong.llvm.bc
+│       │   ├── dsemul.llvm.bc
+│       │   ├── ieee754d.llvm.bc
+│       │   ├── ieee754dp.llvm.bc
+│       │   ├── ieee754.llvm.bc
+│       │   ├── ieee754sp.llvm.bc
+│       │   ├── me-debugfs.llvm.bc
+│       │   ├── sp_add.llvm.bc
+│       │   ├── sp_cmp.llvm.bc
+│       │   ├── sp_div.llvm.bc
+│       │   ├── sp_fdp.llvm.bc
+│       │   ├── sp_fint.llvm.bc
+│       │   ├── sp_flong.llvm.bc
+│       │   ├── sp_mul.llvm.bc
+│       │   ├── sp_simple.llvm.bc
+│       │   ├── sp_sqrt.llvm.bc
+│       │   ├── sp_sub.llvm.bc
+│       │   ├── sp_tint.llvm.bc
+│       │   └── sp_tlong.llvm.bc
+│       ├── mm
+│       │   ├── cache.llvm.bc
+│       │   ├── cex-gen.llvm.bc
+│       │   ├── c-r4k.llvm.bc
+│       │   ├── dma-default.llvm.bc
+│       │   ├── extable.llvm.bc
+│       │   ├── fault.llvm.bc
+│       │   ├── gup.llvm.bc
+│       │   ├── highmem.llvm.bc
+│       │   ├── init.llvm.bc
+│       │   ├── ioremap.llvm.bc
+│       │   ├── mmap.llvm.bc
+│       │   ├── page-funcs.llvm.bc
+│       │   ├── page.llvm.bc
+│       │   ├── pgtable-32.llvm.bc
+│       │   ├── tlbex-fault.llvm.bc
+│       │   ├── tlbex.llvm.bc
+│       │   ├── tlb-funcs.llvm.bc
+│       │   ├── tlb-r4k.llvm.bc
+│       │   └── uasm-mips.llvm.bc
+│       └── pci
+│           ├── pci-bcm47xx.llvm.bc
+│           └── pci.llvm.bc
+├── block
+│   ├── bio.llvm.bc
+│   ├── blk-core.llvm.bc
+│   ├── blk-exec.llvm.bc
+│   ├── blk-flush.llvm.bc
+│   ├── blk-ioc.llvm.bc
+│   ├── blk-iopoll.llvm.bc
+│   ├── blk-lib.llvm.bc
+│   ├── blk-map.llvm.bc
+│   ├── blk-merge.llvm.bc
+│   ├── blk-mq-cpu.llvm.bc
+│   ├── blk-mq-cpumap.llvm.bc
+│   ├── blk-mq.llvm.bc
+│   ├── blk-mq-sysfs.llvm.bc
+│   ├── blk-mq-tag.llvm.bc
+│   ├── blk-settings.llvm.bc
+│   ├── blk-softirq.llvm.bc
+│   ├── blk-sysfs.llvm.bc
+│   ├── blk-tag.llvm.bc
+│   ├── blk-timeout.llvm.bc
+│   ├── bounce.llvm.bc
+│   ├── deadline-iosched.llvm.bc
+│   ├── elevator.llvm.bc
+│   ├── genhd.llvm.bc
+│   ├── ioctl.llvm.bc
+│   ├── ioprio.llvm.bc
+│   ├── noop-iosched.llvm.bc
+│   ├── partition-generic.llvm.bc
+│   ├── partitions
+│   │   ├── check.llvm.bc
+│   │   ├── efi.llvm.bc
+│   │   └── msdos.llvm.bc
+│   └── scsi_ioctl.llvm.bc
+├── crypto
+│   ├── aes_generic.llvm.bc
+│   ├── algapi.llvm.bc
+│   ├── api.llvm.bc
+│   ├── cipher.llvm.bc
+│   ├── compress.llvm.bc
+│   ├── memneq.llvm.bc
+│   ├── proc.llvm.bc
+│   └── scatterwalk.llvm.bc
+├── drivers
+│   ├── base
+│   │   ├── attribute_container.llvm.bc
+│   │   ├── bus.llvm.bc
+│   │   ├── class.llvm.bc
+│   │   ├── component.llvm.bc
+│   │   ├── container.llvm.bc
+│   │   ├── core.llvm.bc
+│   │   ├── cpu.llvm.bc
+│   │   ├── dd.llvm.bc
+│   │   ├── devres.llvm.bc
+│   │   ├── dma-coherent.llvm.bc
+│   │   ├── dma-mapping.llvm.bc
+│   │   ├── driver.llvm.bc
+│   │   ├── firmware_class.llvm.bc
+│   │   ├── firmware.llvm.bc
+│   │   ├── init.llvm.bc
+│   │   ├── map.llvm.bc
+│   │   ├── module.llvm.bc
+│   │   ├── platform.llvm.bc
+│   │   ├── property.llvm.bc
+│   │   ├── syscore.llvm.bc
+│   │   ├── topology.llvm.bc
+│   │   └── transport_class.llvm.bc
+│   ├── bcma
+│   │   ├── core.llvm.bc
+│   │   ├── driver_chipcommon_b.llvm.bc
+│   │   ├── driver_chipcommon.llvm.bc
+│   │   ├── driver_chipcommon_nflash.llvm.bc
+│   │   ├── driver_chipcommon_pmu.llvm.bc
+│   │   ├── driver_chipcommon_sflash.llvm.bc
+│   │   ├── driver_gmac_cmn.llvm.bc
+│   │   ├── driver_gpio.llvm.bc
+│   │   ├── driver_mips.llvm.bc
+│   │   ├── driver_pcie2.llvm.bc
+│   │   ├── driver_pci_host.llvm.bc
+│   │   ├── driver_pci.llvm.bc
+│   │   ├── host_pci.llvm.bc
+│   │   ├── host_soc.llvm.bc
+│   │   ├── main.llvm.bc
+│   │   ├── scan.llvm.bc
+│   │   └── sprom.llvm.bc
+│   ├── char
+│   │   ├── hw_random
+│   │   │   └── core.llvm.bc
+│   │   ├── mem.llvm.bc
+│   │   ├── misc.llvm.bc
+│   │   └── random.llvm.bc
+│   ├── gpio
+│   │   ├── devres.llvm.bc
+│   │   ├── gpiolib-legacy.llvm.bc
+│   │   ├── gpiolib.llvm.bc
+│   │   └── gpiolib-sysfs.llvm.bc
+│   ├── leds
+│   │   ├── led-class.llvm.bc
+│   │   ├── led-core.llvm.bc
+│   │   ├── leds-gpio-register.llvm.bc
+│   │   ├── led-triggers.llvm.bc
+│   │   └── trigger
+│   │       ├── ledtrig-default-on.llvm.bc
+│   │       └── ledtrig-timer.llvm.bc
+│   ├── mtd
+│   │   ├── bcm47xxpart.llvm.bc
+│   │   ├── chips
+│   │   │   ├── cfi_cmdset_0001.llvm.bc
+│   │   │   ├── cfi_cmdset_0002.llvm.bc
+│   │   │   ├── cfi_probe.llvm.bc
+│   │   │   ├── cfi_util.llvm.bc
+│   │   │   ├── chipreg.llvm.bc
+│   │   │   └── gen_probe.llvm.bc
+│   │   ├── devices
+│   │   │   └── bcm47xxsflash.llvm.bc
+│   │   ├── maps
+│   │   │   ├── map_funcs.llvm.bc
+│   │   │   └── physmap.llvm.bc
+│   │   ├── mtd_blkdevs.llvm.bc
+│   │   ├── mtdblock.llvm.bc
+│   │   ├── mtdchar.llvm.bc
+│   │   ├── mtdconcat.llvm.bc
+│   │   ├── mtdcore.llvm.bc
+│   │   ├── mtdpart.llvm.bc
+│   │   ├── mtdsuper.llvm.bc
+│   │   └── nand
+│   │       ├── bcm47xxnflash
+│   │       │   ├── main.llvm.bc
+│   │       │   └── ops_bcm4706.llvm.bc
+│   │       ├── nand_base.llvm.bc
+│   │       ├── nand_bbt.llvm.bc
+│   │       ├── nand_ecc.llvm.bc
+│   │       ├── nand_ids.llvm.bc
+│   │       └── nand_timings.llvm.bc
+│   ├── net
+│   │   ├── ethernet
+│   │   │   └── broadcom
+│   │   │       └── bgmac.llvm.bc
+│   │   ├── loopback.llvm.bc
+│   │   ├── phy
+│   │   │   ├── mdio_bus.llvm.bc
+│   │   │   ├── phy_device.llvm.bc
+│   │   │   └── phy.llvm.bc
+│   │   └── Space.llvm.bc
+│   ├── pci
+│   │   ├── access.llvm.bc
+│   │   ├── bus.llvm.bc
+│   │   ├── host-bridge.llvm.bc
+│   │   ├── irq.llvm.bc
+│   │   ├── pci-driver.llvm.bc
+│   │   ├── pci.llvm.bc
+│   │   ├── pci-sysfs.llvm.bc
+│   │   ├── probe.llvm.bc
+│   │   ├── proc.llvm.bc
+│   │   ├── quirks.llvm.bc
+│   │   ├── remove.llvm.bc
+│   │   ├── rom.llvm.bc
+│   │   ├── search.llvm.bc
+│   │   ├── setup-bus.llvm.bc
+│   │   ├── setup-irq.llvm.bc
+│   │   ├── setup-res.llvm.bc
+│   │   ├── slot.llvm.bc
+│   │   ├── vc.llvm.bc
+│   │   └── vpd.llvm.bc
+│   ├── rtc
+│   │   └── rtc-lib.llvm.bc
+│   ├── staging
+│   │   └── staging.llvm.bc
+│   ├── tty
+│   │   ├── n_tty.llvm.bc
+│   │   ├── pty.llvm.bc
+│   │   ├── serial
+│   │   │   ├── 8250
+│   │   │   │   ├── 8250_core.llvm.bc
+│   │   │   │   └── 8250_early.llvm.bc
+│   │   │   ├── earlycon.llvm.bc
+│   │   │   └── serial_core.llvm.bc
+│   │   ├── tty_buffer.llvm.bc
+│   │   ├── tty_ioctl.llvm.bc
+│   │   ├── tty_io.llvm.bc
+│   │   ├── tty_ldisc.llvm.bc
+│   │   ├── tty_ldsem.llvm.bc
+│   │   ├── tty_mutex.llvm.bc
+│   │   └── tty_port.llvm.bc
+│   ├── usb
+│   │   └── host
+│   │       └── pci-quirks.llvm.bc
+│   ├── video
+│   │   └── fbdev
+│   │       └── core
+│   │           └── fb_notify.llvm.bc
+│   └── watchdog
+│       ├── bcm47xx_wdt.llvm.bc
+│       ├── watchdog_core.llvm.bc
+│       └── watchdog_dev.llvm.bc
+├── fs
+│   ├── aio.llvm.bc
+│   ├── anon_inodes.llvm.bc
+│   ├── attr.llvm.bc
+│   ├── bad_inode.llvm.bc
+│   ├── binfmt_elf.llvm.bc
+│   ├── binfmt_script.llvm.bc
+│   ├── block_dev.llvm.bc
+│   ├── buffer.llvm.bc
+│   ├── char_dev.llvm.bc
+│   ├── dcache.llvm.bc
+│   ├── debugfs
+│   │   ├── file.llvm.bc
+│   │   └── inode.llvm.bc
+│   ├── devpts
+│   │   └── inode.llvm.bc
+│   ├── direct-io.llvm.bc
+│   ├── drop_caches.llvm.bc
+│   ├── eventfd.llvm.bc
+│   ├── eventpoll.llvm.bc
+│   ├── exec.llvm.bc
+│   ├── fcntl.llvm.bc
+│   ├── file.llvm.bc
+│   ├── filesystems.llvm.bc
+│   ├── file_table.llvm.bc
+│   ├── fs_pin.llvm.bc
+│   ├── fs_struct.llvm.bc
+│   ├── fs-writeback.llvm.bc
+│   ├── inode.llvm.bc
+│   ├── ioctl.llvm.bc
+│   ├── jffs2
+│   │   ├── background.llvm.bc
+│   │   ├── build.llvm.bc
+│   │   ├── compr.llvm.bc
+│   │   ├── compr_rtime.llvm.bc
+│   │   ├── debug.llvm.bc
+│   │   ├── dir.llvm.bc
+│   │   ├── erase.llvm.bc
+│   │   ├── file.llvm.bc
+│   │   ├── fs.llvm.bc
+│   │   ├── gc.llvm.bc
+│   │   ├── ioctl.llvm.bc
+│   │   ├── malloc.llvm.bc
+│   │   ├── nodelist.llvm.bc
+│   │   ├── nodemgmt.llvm.bc
+│   │   ├── readinode.llvm.bc
+│   │   ├── read.llvm.bc
+│   │   ├── scan.llvm.bc
+│   │   ├── summary.llvm.bc
+│   │   ├── super.llvm.bc
+│   │   ├── symlink.llvm.bc
+│   │   ├── wbuf.llvm.bc
+│   │   ├── write.llvm.bc
+│   │   ├── writev.llvm.bc
+│   │   ├── xattr.llvm.bc
+│   │   ├── xattr_trusted.llvm.bc
+│   │   └── xattr_user.llvm.bc
+│   ├── kernfs
+│   │   ├── dir.llvm.bc
+│   │   ├── file.llvm.bc
+│   │   ├── inode.llvm.bc
+│   │   ├── mount.llvm.bc
+│   │   └── symlink.llvm.bc
+│   ├── libfs.llvm.bc
+│   ├── locks.llvm.bc
+│   ├── mpage.llvm.bc
+│   ├── namei.llvm.bc
+│   ├── namespace.llvm.bc
+│   ├── notify
+│   │   ├── fdinfo.llvm.bc
+│   │   ├── fsnotify.llvm.bc
+│   │   ├── group.llvm.bc
+│   │   ├── inode_mark.llvm.bc
+│   │   ├── inotify
+│   │   │   ├── inotify_fsnotify.llvm.bc
+│   │   │   └── inotify_user.llvm.bc
+│   │   ├── mark.llvm.bc
+│   │   ├── notification.llvm.bc
+│   │   └── vfsmount_mark.llvm.bc
+│   ├── open.llvm.bc
+│   ├── overlayfs
+│   │   ├── copy_up.llvm.bc
+│   │   ├── dir.llvm.bc
+│   │   ├── inode.llvm.bc
+│   │   ├── readdir.llvm.bc
+│   │   └── super.llvm.bc
+│   ├── pipe.llvm.bc
+│   ├── pnode.llvm.bc
+│   ├── proc
+│   │   ├── array.llvm.bc
+│   │   ├── base.llvm.bc
+│   │   ├── cmdline.llvm.bc
+│   │   ├── consoles.llvm.bc
+│   │   ├── cpuinfo.llvm.bc
+│   │   ├── devices.llvm.bc
+│   │   ├── fd.llvm.bc
+│   │   ├── generic.llvm.bc
+│   │   ├── inode.llvm.bc
+│   │   ├── interrupts.llvm.bc
+│   │   ├── kmsg.llvm.bc
+│   │   ├── loadavg.llvm.bc
+│   │   ├── meminfo.llvm.bc
+│   │   ├── namespaces.llvm.bc
+│   │   ├── proc_net.llvm.bc
+│   │   ├── proc_sysctl.llvm.bc
+│   │   ├── proc_tty.llvm.bc
+│   │   ├── root.llvm.bc
+│   │   ├── self.llvm.bc
+│   │   ├── softirqs.llvm.bc
+│   │   ├── stat.llvm.bc
+│   │   ├── task_mmu.llvm.bc
+│   │   ├── thread_self.llvm.bc
+│   │   ├── uptime.llvm.bc
+│   │   └── version.llvm.bc
+│   ├── proc_namespace.llvm.bc
+│   ├── ramfs
+│   │   ├── file-mmu.llvm.bc
+│   │   └── inode.llvm.bc
+│   ├── readdir.llvm.bc
+│   ├── read_write.llvm.bc
+│   ├── select.llvm.bc
+│   ├── seq_file.llvm.bc
+│   ├── signalfd.llvm.bc
+│   ├── splice.llvm.bc
+│   ├── squashfs
+│   │   ├── block.llvm.bc
+│   │   ├── cache.llvm.bc
+│   │   ├── decompressor.llvm.bc
+│   │   ├── decompressor_multi_percpu.llvm.bc
+│   │   ├── dir.llvm.bc
+│   │   ├── export.llvm.bc
+│   │   ├── file_direct.llvm.bc
+│   │   ├── file.llvm.bc
+│   │   ├── fragment.llvm.bc
+│   │   ├── id.llvm.bc
+│   │   ├── inode.llvm.bc
+│   │   ├── namei.llvm.bc
+│   │   ├── page_actor.llvm.bc
+│   │   ├── super.llvm.bc
+│   │   ├── symlink.llvm.bc
+│   │   └── xz_wrapper.llvm.bc
+│   ├── stack.llvm.bc
+│   ├── statfs.llvm.bc
+│   ├── stat.llvm.bc
+│   ├── super.llvm.bc
+│   ├── sync.llvm.bc
+│   ├── sysfs
+│   │   ├── dir.llvm.bc
+│   │   ├── file.llvm.bc
+│   │   ├── group.llvm.bc
+│   │   ├── mount.llvm.bc
+│   │   └── symlink.llvm.bc
+│   ├── timerfd.llvm.bc
+│   ├── utimes.llvm.bc
+│   └── xattr.llvm.bc
+├── init
+│   ├── calibrate.llvm.bc
+│   ├── do_mounts_initrd.llvm.bc
+│   ├── do_mounts.llvm.bc
+│   ├── initramfs.llvm.bc
+│   ├── init_task.llvm.bc
+│   ├── main.llvm.bc
+│   └── version.llvm.bc
+├── ipc
+│   ├── ipcns_notifier.llvm.bc
+│   ├── ipc_sysctl.llvm.bc
+│   ├── msg.llvm.bc
+│   ├── msgutil.llvm.bc
+│   ├── sem.llvm.bc
+│   ├── shm.llvm.bc
+│   ├── syscall.llvm.bc
+│   └── util.llvm.bc
+├── kernel
+│   ├── async.llvm.bc
+│   ├── bounds.llvm.bc
+│   ├── bpf
+│   │   ├── core.llvm.bc
+│   │   ├── syscall.llvm.bc
+│   │   └── verifier.llvm.bc
+│   ├── capability.llvm.bc
+│   ├── cpu.llvm.bc
+│   ├── cred.llvm.bc
+│   ├── elfcore.llvm.bc
+│   ├── exec_domain.llvm.bc
+│   ├── exit.llvm.bc
+│   ├── extable.llvm.bc
+│   ├── fork.llvm.bc
+│   ├── futex.llvm.bc
+│   ├── groups.llvm.bc
+│   ├── irq
+│   │   ├── autoprobe.llvm.bc
+│   │   ├── chip.llvm.bc
+│   │   ├── devres.llvm.bc
+│   │   ├── dummychip.llvm.bc
+│   │   ├── handle.llvm.bc
+│   │   ├── irqdesc.llvm.bc
+│   │   ├── irqdomain.llvm.bc
+│   │   ├── manage.llvm.bc
+│   │   ├── proc.llvm.bc
+│   │   ├── resend.llvm.bc
+│   │   └── spurious.llvm.bc
+│   ├── irq_work.llvm.bc
+│   ├── kmod.llvm.bc
+│   ├── ksysfs.llvm.bc
+│   ├── kthread.llvm.bc
+│   ├── locking
+│   │   ├── mcs_spinlock.llvm.bc
+│   │   ├── mutex.llvm.bc
+│   │   ├── rtmutex.llvm.bc
+│   │   ├── rwsem.llvm.bc
+│   │   ├── rwsem-spinlock.llvm.bc
+│   │   └── semaphore.llvm.bc
+│   ├── module.llvm.bc
+│   ├── notifier.llvm.bc
+│   ├── nsproxy.llvm.bc
+│   ├── panic.llvm.bc
+│   ├── params.llvm.bc
+│   ├── pid.llvm.bc
+│   ├── power
+│   │   └── qos.llvm.bc
+│   ├── printk
+│   │   └── printk.llvm.bc
+│   ├── ptrace.llvm.bc
+│   ├── range.llvm.bc
+│   ├── rcu
+│   │   ├── srcu.llvm.bc
+│   │   ├── tiny.llvm.bc
+│   │   └── update.llvm.bc
+│   ├── reboot.llvm.bc
+│   ├── resource.llvm.bc
+│   ├── sched
+│   │   ├── clock.llvm.bc
+│   │   ├── completion.llvm.bc
+│   │   ├── core.llvm.bc
+│   │   ├── cputime.llvm.bc
+│   │   ├── deadline.llvm.bc
+│   │   ├── fair.llvm.bc
+│   │   ├── idle.llvm.bc
+│   │   ├── idle_task.llvm.bc
+│   │   ├── proc.llvm.bc
+│   │   ├── rt.llvm.bc
+│   │   ├── stop_task.llvm.bc
+│   │   └── wait.llvm.bc
+│   ├── signal.llvm.bc
+│   ├── smpboot.llvm.bc
+│   ├── softirq.llvm.bc
+│   ├── sysctl_binary.llvm.bc
+│   ├── sysctl.llvm.bc
+│   ├── sys.llvm.bc
+│   ├── sys_ni.llvm.bc
+│   ├── task_work.llvm.bc
+│   ├── time
+│   │   ├── alarmtimer.llvm.bc
+│   │   ├── clockevents.llvm.bc
+│   │   ├── clocksource.llvm.bc
+│   │   ├── hrtimer.llvm.bc
+│   │   ├── itimer.llvm.bc
+│   │   ├── jiffies.llvm.bc
+│   │   ├── ntp.llvm.bc
+│   │   ├── posix-clock.llvm.bc
+│   │   ├── posix-cpu-timers.llvm.bc
+│   │   ├── posix-timers.llvm.bc
+│   │   ├── tick-common.llvm.bc
+│   │   ├── tick-oneshot.llvm.bc
+│   │   ├── tick-sched.llvm.bc
+│   │   ├── timeconv.llvm.bc
+│   │   ├── timekeeping_debug.llvm.bc
+│   │   ├── timekeeping.llvm.bc
+│   │   ├── time.llvm.bc
+│   │   ├── timer_list.llvm.bc
+│   │   └── timer.llvm.bc
+│   ├── up.llvm.bc
+│   ├── user.llvm.bc
+│   ├── utsname_sysctl.llvm.bc
+│   └── workqueue.llvm.bc
+├── lib
+│   ├── argv_split.llvm.bc
+│   ├── atomic64.llvm.bc
+│   ├── bcd.llvm.bc
+│   ├── bitmap.llvm.bc
+│   ├── bitrev.llvm.bc
+│   ├── bsearch.llvm.bc
+│   ├── bust_spinlocks.llvm.bc
+│   ├── clz_ctz.llvm.bc
+│   ├── cmdline.llvm.bc
+│   ├── crc32.llvm.bc
+│   ├── ctype.llvm.bc
+│   ├── debug_locks.llvm.bc
+│   ├── dec_and_lock.llvm.bc
+│   ├── decompress.llvm.bc
+│   ├── devres.llvm.bc
+│   ├── div64.llvm.bc
+│   ├── dump_stack.llvm.bc
+│   ├── dynamic_queue_limits.llvm.bc
+│   ├── earlycpio.llvm.bc
+│   ├── extable.llvm.bc
+│   ├── find_last_bit.llvm.bc
+│   ├── find_next_bit.llvm.bc
+│   ├── flex_array.llvm.bc
+│   ├── flex_proportions.llvm.bc
+│   ├── gcd.llvm.bc
+│   ├── halfmd4.llvm.bc
+│   ├── hash.llvm.bc
+│   ├── hexdump.llvm.bc
+│   ├── hweight.llvm.bc
+│   ├── idr.llvm.bc
+│   ├── int_sqrt.llvm.bc
+│   ├── iomap_copy.llvm.bc
+│   ├── ioremap.llvm.bc
+│   ├── iovec.llvm.bc
+│   ├── irq_regs.llvm.bc
+│   ├── is_single_threaded.llvm.bc
+│   ├── kasprintf.llvm.bc
+│   ├── kfifo.llvm.bc
+│   ├── klist.llvm.bc
+│   ├── kobject.llvm.bc
+│   ├── kobject_uevent.llvm.bc
+│   ├── kstrtox.llvm.bc
+│   ├── lcm.llvm.bc
+│   ├── list_sort.llvm.bc
+│   ├── llist.llvm.bc
+│   ├── lockref.llvm.bc
+│   ├── md5.llvm.bc
+│   ├── memweight.llvm.bc
+│   ├── net_utils.llvm.bc
+│   ├── nlattr.llvm.bc
+│   ├── parser.llvm.bc
+│   ├── pci_iomap.llvm.bc
+│   ├── percpu_ida.llvm.bc
+│   ├── percpu-refcount.llvm.bc
+│   ├── plist.llvm.bc
+│   ├── proportions.llvm.bc
+│   ├── radix-tree.llvm.bc
+│   ├── random32.llvm.bc
+│   ├── ratelimit.llvm.bc
+│   ├── rbtree.llvm.bc
+│   ├── reciprocal_div.llvm.bc
+│   ├── rhashtable.llvm.bc
+│   ├── scatterlist.llvm.bc
+│   ├── sha1.llvm.bc
+│   ├── show_mem.llvm.bc
+│   ├── sort.llvm.bc
+│   ├── string_helpers.llvm.bc
+│   ├── string.llvm.bc
+│   ├── syscall.llvm.bc
+│   ├── timerqueue.llvm.bc
+│   ├── uuid.llvm.bc
+│   ├── vsprintf.llvm.bc
+│   └── xz
+│       ├── xz_dec_lzma2.llvm.bc
+│       ├── xz_dec_stream.llvm.bc
+│       └── xz_dec_syms.llvm.bc
+├── llvm_build.sh
+├── mm
+│   ├── backing-dev.llvm.bc
+│   ├── bootmem.llvm.bc
+│   ├── compaction.llvm.bc
+│   ├── debug.llvm.bc
+│   ├── dmapool.llvm.bc
+│   ├── filemap.llvm.bc
+│   ├── fremap.llvm.bc
+│   ├── gup.llvm.bc
+│   ├── highmem.llvm.bc
+│   ├── init-mm.llvm.bc
+│   ├── interval_tree.llvm.bc
+│   ├── iov_iter.llvm.bc
+│   ├── list_lru.llvm.bc
+│   ├── maccess.llvm.bc
+│   ├── memblock.llvm.bc
+│   ├── memory.llvm.bc
+│   ├── mempool.llvm.bc
+│   ├── mincore.llvm.bc
+│   ├── mlock.llvm.bc
+│   ├── mmap.llvm.bc
+│   ├── mm_init.llvm.bc
+│   ├── mmu_context.llvm.bc
+│   ├── mmzone.llvm.bc
+│   ├── mprotect.llvm.bc
+│   ├── mremap.llvm.bc
+│   ├── msync.llvm.bc
+│   ├── oom_kill.llvm.bc
+│   ├── page_alloc.llvm.bc
+│   ├── page_io.llvm.bc
+│   ├── pagewalk.llvm.bc
+│   ├── page-writeback.llvm.bc
+│   ├── percpu.llvm.bc
+│   ├── pgtable-generic.llvm.bc
+│   ├── readahead.llvm.bc
+│   ├── rmap.llvm.bc
+│   ├── shmem.llvm.bc
+│   ├── slab_common.llvm.bc
+│   ├── slab.llvm.bc
+│   ├── swapfile.llvm.bc
+│   ├── swap.llvm.bc
+│   ├── swap_state.llvm.bc
+│   ├── truncate.llvm.bc
+│   ├── util.llvm.bc
+│   ├── vmacache.llvm.bc
+│   ├── vmalloc.llvm.bc
+│   ├── vmscan.llvm.bc
+│   ├── vmstat.llvm.bc
+│   └── workingset.llvm.bc
+├── net
+│   ├── 802
+│   │   ├── p8022.llvm.bc
+│   │   ├── psnap.llvm.bc
+│   │   └── stp.llvm.bc
+│   ├── 8021q
+│   │   ├── vlan_core.llvm.bc
+│   │   ├── vlan_dev.llvm.bc
+│   │   ├── vlan.llvm.bc
+│   │   ├── vlan_netlink.llvm.bc
+│   │   └── vlanproc.llvm.bc
+│   ├── bridge
+│   │   ├── br_device.llvm.bc
+│   │   ├── br_fdb.llvm.bc
+│   │   ├── br_forward.llvm.bc
+│   │   ├── br_if.llvm.bc
+│   │   ├── br_input.llvm.bc
+│   │   ├── br_ioctl.llvm.bc
+│   │   ├── br.llvm.bc
+│   │   ├── br_mdb.llvm.bc
+│   │   ├── br_multicast.llvm.bc
+│   │   ├── br_netlink.llvm.bc
+│   │   ├── br_stp_bpdu.llvm.bc
+│   │   ├── br_stp_if.llvm.bc
+│   │   ├── br_stp.llvm.bc
+│   │   ├── br_stp_timer.llvm.bc
+│   │   ├── br_sysfs_br.llvm.bc
+│   │   └── br_sysfs_if.llvm.bc
+│   ├── core
+│   │   ├── datagram.llvm.bc
+│   │   ├── dev_addr_lists.llvm.bc
+│   │   ├── dev_ioctl.llvm.bc
+│   │   ├── dev.llvm.bc
+│   │   ├── dst.llvm.bc
+│   │   ├── ethtool.llvm.bc
+│   │   ├── fib_rules.llvm.bc
+│   │   ├── filter.llvm.bc
+│   │   ├── flow_dissector.llvm.bc
+│   │   ├── gen_estimator.llvm.bc
+│   │   ├── gen_stats.llvm.bc
+│   │   ├── iovec.llvm.bc
+│   │   ├── link_watch.llvm.bc
+│   │   ├── neighbour.llvm.bc
+│   │   ├── netevent.llvm.bc
+│   │   ├── net_namespace.llvm.bc
+│   │   ├── net-procfs.llvm.bc
+│   │   ├── net-sysfs.llvm.bc
+│   │   ├── request_sock.llvm.bc
+│   │   ├── rtnetlink.llvm.bc
+│   │   ├── scm.llvm.bc
+│   │   ├── secure_seq.llvm.bc
+│   │   ├── skbuff.llvm.bc
+│   │   ├── sock_diag.llvm.bc
+│   │   ├── sock.llvm.bc
+│   │   ├── stream.llvm.bc
+│   │   ├── sysctl_net_core.llvm.bc
+│   │   ├── tso.llvm.bc
+│   │   └── utils.llvm.bc
+│   ├── ethernet
+│   │   └── eth.llvm.bc
+│   ├── ipv4
+│   │   ├── af_inet.llvm.bc
+│   │   ├── arp.llvm.bc
+│   │   ├── datagram.llvm.bc
+│   │   ├── devinet.llvm.bc
+│   │   ├── fib_frontend.llvm.bc
+│   │   ├── fib_rules.llvm.bc
+│   │   ├── fib_semantics.llvm.bc
+│   │   ├── fib_trie.llvm.bc
+│   │   ├── gre_offload.llvm.bc
+│   │   ├── icmp.llvm.bc
+│   │   ├── igmp.llvm.bc
+│   │   ├── inet_connection_sock.llvm.bc
+│   │   ├── inet_fragment.llvm.bc
+│   │   ├── inet_hashtables.llvm.bc
+│   │   ├── inetpeer.llvm.bc
+│   │   ├── inet_timewait_sock.llvm.bc
+│   │   ├── ip_forward.llvm.bc
+│   │   ├── ip_fragment.llvm.bc
+│   │   ├── ip_input.llvm.bc
+│   │   ├── ipmr.llvm.bc
+│   │   ├── ip_options.llvm.bc
+│   │   ├── ip_output.llvm.bc
+│   │   ├── ip_sockglue.llvm.bc
+│   │   ├── ip_tunnel_core.llvm.bc
+│   │   ├── ping.llvm.bc
+│   │   ├── proc.llvm.bc
+│   │   ├── protocol.llvm.bc
+│   │   ├── raw.llvm.bc
+│   │   ├── route.llvm.bc
+│   │   ├── syncookies.llvm.bc
+│   │   ├── sysctl_net_ipv4.llvm.bc
+│   │   ├── tcp_cong.llvm.bc
+│   │   ├── tcp_cubic.llvm.bc
+│   │   ├── tcp_fastopen.llvm.bc
+│   │   ├── tcp_input.llvm.bc
+│   │   ├── tcp_ipv4.llvm.bc
+│   │   ├── tcp.llvm.bc
+│   │   ├── tcp_metrics.llvm.bc
+│   │   ├── tcp_minisocks.llvm.bc
+│   │   ├── tcp_offload.llvm.bc
+│   │   ├── tcp_output.llvm.bc
+│   │   ├── tcp_timer.llvm.bc
+│   │   ├── udplite.llvm.bc
+│   │   ├── udp.llvm.bc
+│   │   └── udp_offload.llvm.bc
+│   ├── ipv6
+│   │   ├── addrconf_core.llvm.bc
+│   │   ├── exthdrs_core.llvm.bc
+│   │   ├── exthdrs_offload.llvm.bc
+│   │   ├── ip6_checksum.llvm.bc
+│   │   ├── ip6_icmp.llvm.bc
+│   │   ├── ip6_offload.llvm.bc
+│   │   ├── output_core.llvm.bc
+│   │   ├── protocol.llvm.bc
+│   │   ├── tcpv6_offload.llvm.bc
+│   │   └── udp_offload.llvm.bc
+│   ├── llc
+│   │   ├── llc_core.llvm.bc
+│   │   ├── llc_input.llvm.bc
+│   │   └── llc_output.llvm.bc
+│   ├── netlink
+│   │   ├── af_netlink.llvm.bc
+│   │   └── genetlink.llvm.bc
+│   ├── packet
+│   │   └── af_packet.llvm.bc
+│   ├── sched
+│   │   ├── sch_api.llvm.bc
+│   │   ├── sch_blackhole.llvm.bc
+│   │   ├── sch_fifo.llvm.bc
+│   │   ├── sch_fq_codel.llvm.bc
+│   │   ├── sch_generic.llvm.bc
+│   │   └── sch_mq.llvm.bc
+│   ├── socket.llvm.bc
+│   ├── sysctl_net.llvm.bc
+│   └── unix
+│       ├── af_unix.llvm.bc
+│       ├── garbage.llvm.bc
+│       └── sysctl_net_unix.llvm.bc
+├── scripts
+│   └── mod
+│       ├── devicetable-offsets.llvm.bc
+│       └── empty.llvm.bc
+├── security
+│   ├── commoncap.llvm.bc
+│   └── min_addr.llvm.bc
+├── tree
+└── usr
+    └── initramfs_data.llvm.bc
+
+86 directories, 784 files
