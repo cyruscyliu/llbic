@@ -11,9 +11,9 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 + arch specific and linux-version specific, meaning that the project will tell you the least patches to your requirements
 
 ## Support List
-|arch|linux version|clang version|compile to bc|link all bc|
-|:---:|:---:|:---:|:---:|:---:|
-|mips|3.18.20|9|Y|Y|
+|build issues collection|arch|linux version|clang version|compile to bc|link all bc|
+|:---:|:---:|:---:|:---:|:---:|:---:|
+|[mips-linux-3.18.20](./arch/mips/linux-3.18.20.md)|mips|3.18.20|9|Y|Y|
 
 ## Others
 
