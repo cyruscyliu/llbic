@@ -7,7 +7,7 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 
 ## features
 
-+ compiler `.S` and `.c` to bytecode and link them together, ported from [dr_checker](https://github.com/ucsb-seclab/dr_checker) which is a soundy vulnerablity detection tool for Linux Kernel drivers
++ compiler `.S` and `.c` to bytecode and link them together (still bytecdoe), ported from [dr_checker](https://github.com/ucsb-seclab/dr_checker) which is a soundy vulnerablity detection tool for Linux Kernel drivers
 + arch specific and linux-version specific, meaning that the project will tell you the least patches to your requirements
 
 
@@ -15,7 +15,7 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 
 ### port dr_checker to clang-9
 
-I don't take all the code in `dr_checker` to this repo, but I still tested all the code in `dr_checker` with `clang-9`.
+I don't bring all the code in `dr_checker` to this repo, but I still tested all the code in `dr_checker` with `clang-9`.
 Besides changes you can see in this repo, I will list some others you might be interested in.
 
 ##### dr_linker
