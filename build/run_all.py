@@ -5,12 +5,7 @@ import time
 import logging
 import argparse
 
-from analyses.llvm.components.driver_linker import DriverLinker
-from analyses.llvm.components.entry_point_identifier import EntryPointIdentifier
-from analyses.llvm.components.llvm_build import LLVMBuild
-from analyses.llvm.components.parse_headers import ParseHeaders
-from analyses.llvm.components.soundy_analysis_runner import SoundyAnalysisRunner
-from analyses.llvm.components.warnings_stats import ComputeWarningStats
+from build.components.llvm_compile import LLVMCompile
 
 logger = logging.getLogger()
 
@@ -98,7 +93,7 @@ def main():
     # set up all the components that need to run
     target_components = list()
     if not parsed_args.skip_llvm_build:
-        target_components.append(LLVMBuild(arg_dict))
+        target_components.append(LLVMCompile(arg_dict))
     # if not parsed_args.skip_dr_linker:
     #     target_components.append(DriverLinker(arg_dict))
     # if not parsed_args.skip_parse_headers:

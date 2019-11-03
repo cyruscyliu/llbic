@@ -866,8 +866,9 @@
 ├── security
 │   ├── commoncap.llvm.bc
 │   └── min_addr.llvm.bc
-├── tree
-└── usr
-    └── initramfs_data.llvm.bc
+├── usr
+│   └── initramfs_data.llvm.bc
+├── vmlinux.llvm.bc
+└── vmlinux.llvm.ll
 
-86 directories, 784 files
+86 directories, 785 files
