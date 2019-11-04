@@ -59,6 +59,8 @@ class LLVMCompile(Component):
             return "LLVM Bitcode out should be provided."
         if self.gcc_name is None:
             return "No compiler name specified, this is needed to filter compilation lines"
+        if not os.path.exists(self.gcc_name):
+            return "Required file " + str(self.gcc_name) + " do not exist"
         if self.arch is None:
             return "No valid architecture provided."
         return None
