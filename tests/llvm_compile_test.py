@@ -1,5 +1,5 @@
 from unittest import TestCase
-from build.llvm_compile import LLVMCompile
+from helper.compile import LLVMCompile
 
 
 class TestLLVMCompile(TestCase):

@@ -25,7 +25,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
 """
 import os
 
-from build.base_component import Component
+from helper.base import Component
 
 
 class LLVMLink(Component):

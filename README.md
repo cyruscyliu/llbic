@@ -7,8 +7,13 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 
 ## Features
 
-+ compile `.S` and `.c` to bytecode and link them together (still bytecdoe), ported from [dr_checker](https://github.com/ucsb-seclab/dr_checker) which is a soundy vulnerablity detection tool for Linux Kernel drivers
 + arch specific and linux-version specific, meaning that the project will tell you the least patches to your requirements
++ *compile `.S` and `.c` to bytecode and link them together (still bytecdoe), ported from 
+[dr_checker](https://github.com/ucsb-seclab/dr_checker) which is a soundy vulnerablity detection tool for Linux Kernel drivers
++ *run basic passes on the bytecode generated in last step, ported from [dr_checker](https://github.com/ucsb-seclab/dr_checker)
+
+>Two *features actually serve as a simple static analyzer of linux kernel source code.
+
 
 ## Support List
 |build issues collection|arch|linux version|clang version|compile to bc|link all bc|
