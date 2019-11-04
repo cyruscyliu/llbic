@@ -50,4 +50,15 @@ if (llvm::Error ec = moduleOrErr.takeError()) {
 }
 ```
 
+##### entry_point_identifier
 
+The return value of `parseBitcodeFile` has changed (similar patches as above).
+
+`BUG` Find a shorter invalid struct name.
+
+```cplusplus
+for(auto curre:allentries) {
+    // if(curre.find(curr_st_name) != std::string::npos) {
+    if(curr_st_name.length() >= curre.length() && curre.find(curr_st_name) != std::string::npos) {
+        strcpy(hello_str, curre.c_str());
+```
