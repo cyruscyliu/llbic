@@ -1,7 +1,9 @@
 from unittest import TestCase
 
+from passes.graphs import dot_callgraph, dot_cfg
 
-class TestLLVMLink(TestCase):
+
+class TestLLVMPass(TestCase):
     def test_mips_31820(self):
         kwargs = {
             'opt_bin_path': '/usr/bin/opt-9',
@@ -9,9 +11,5 @@ class TestLLVMLink(TestCase):
             'analysis_out': '/home/liuqiang/Desktop/linux-3.18.20-llvm-bitcode/out',
             'analysis_so': '/home/liuqiang/Desktop/llbic/pass',
         }
-        analysis_runner = AnalysisRunner(**kwargs)
-        status = analysis_runner.setup()
-        if status is not None:
-            print(status)
-            return
-        analysis_runner.perform()
+        dot_callgraph(kwargs['llvm_bc_out'])
+        dot_cfg(kwargs['llvm_bc_out'])
