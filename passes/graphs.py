@@ -1,11 +1,20 @@
 import os
 
 
-def dot_callgraph(llvm_bc_out):
+def check_path(path, limit):
+    for lm in limit:
+        if path.find(lm) != -1:
+            return True
+    return False
+
+
+def dot_callgraph(llvm_bc_out, limit):
     """
     vmlinux.llvm.bc is too large, so we handle every built-in.bc instead
     """
     for root, dirs, files in os.walk(llvm_bc_out):
+        if not check_path(root, limit):
+            continue
         build_in_bc = os.path.join(root, 'built-in.llvm.bc')
         if not os.path.exists(build_in_bc):
             continue
@@ -16,11 +25,13 @@ def dot_callgraph(llvm_bc_out):
         os.chdir(cwd)
 
 
-def dot_cfg(llvm_bc_out):
+def dot_cfg(llvm_bc_out, limit):
     """
     vmlinux.llvm.bc is too large, so we handle every built-in.bc instead
     """
     for root, dirs, files in os.walk(llvm_bc_out):
+        if not check_path(root, limit):
+            continue
         build_in_bc = os.path.join(root, 'built-in.llvm.bc')
         if not os.path.exists(build_in_bc):
             continue
