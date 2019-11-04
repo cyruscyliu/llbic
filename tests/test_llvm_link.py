@@ -1,7 +1,6 @@
 from unittest import TestCase
 
-from build.components.llvm_link import LLVMLink
-import os
+from build.llvm_link import LLVMLink
 
 
 class TestLLVMLink(TestCase):
