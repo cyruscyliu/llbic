@@ -64,11 +64,15 @@ def _process_dir(llvm_bc_out):
     all_link_files = []
     for root, dirs, files in os.walk(llvm_bc_out):
         if not len(dirs):
+            link_files = []
             for file_ in files:
                 link_file = os.path.join(root, file_)
                 if _is_bit_code_file(link_file):
-                    all_link_files.append(link_file)
-    os.system('llvm-link-9 ' + " ".join(all_link_files) + " -o " + to_test_bc)
+                    link_files.append(link_file)
+            built_in_bc = os.path.join(root, 'built-in.llvm.bc')
+            os.system('llvm-link-9 ' + " ".join(link_files) + " -o " + built_in_bc)
+            all_link_files.append(built_in_bc)
+    os.system('llvm-link-9 ' + " ".join(all_link_files) + " -o vmlinux.llvm.bc")
     os.system('llvm-dis-9 vmlinux.llvm.bc -o vmlinux.llvm.ll')
     print("To check BC file:" + to_test_bc)
     return True
