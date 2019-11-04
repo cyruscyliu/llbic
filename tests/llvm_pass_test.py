@@ -1,5 +1,6 @@
 from unittest import TestCase
 
+
 class TestLLVMLink(TestCase):
     def test_mips_31820(self):
         kwargs = {
