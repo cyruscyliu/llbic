@@ -26,7 +26,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import os
 import logging
 
-from build.base_component import Component
+from helper.base import Component
 from multiprocessing import Pool, cpu_count
 
 logger = logging.getLogger()
