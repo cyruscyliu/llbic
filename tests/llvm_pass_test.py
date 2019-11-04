@@ -11,5 +11,5 @@ class TestLLVMPass(TestCase):
             'analysis_out': '/home/liuqiang/Desktop/linux-3.18.20-llvm-bitcode/out',
             'analysis_so': '/home/liuqiang/Desktop/llbic/pass',
         }
-        dot_callgraph(kwargs['llvm_bc_out'])
-        dot_cfg(kwargs['llvm_bc_out'])
+        dot_callgraph(kwargs['llvm_bc_out'], ['init', 'arch/mips/bcm47xx'])
+        dot_cfg(kwargs['llvm_bc_out'], ['init', 'arch/mips/bcm47xx'])
