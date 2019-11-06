@@ -21,6 +21,66 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 |[mips-linux-3.18.20](./arch/mips/linux-3.18.20.md)|mips|3.18.20|9|Y|Y|
 |[arm-linux-3.18.20](./arch/arm/linux-3.18.20.md)|arm|3.18.20|9|Y|N|
 
+## Quick Start
+
+Prepare a buildable kernel.
+
+```shell script
+make ARCH=arm CROSS_COMPILE=path/to/cross_compiler_prefix V=1 >makeout.txt 2>&1
+```
+
+Run llvm compile.
+
+```python
+import os
+from helper.compile import LLVMCompile
+
+def test(self):
+    kwargs = {
+        'makeout': 'path/to/makeout.txt',
+        'clangbin': '/usr/bin/clang-9',
+        'llvm_bc_out': 'path/to/kernel_src_dir' + '-llvm-bitcode',
+        'compiler_name': 'path/to/cross_compiler_gcc',
+        'arch': 'mips',
+        'kernel_src_dir': 'path/tokernel_src_dir',
+    }
+    llvm_compile = LLVMCompile(**kwargs)
+    status = llvm_compile.setup()
+    if status is not None:
+        print(status)
+        return
+    llvm_compile.perform()
+```
+
+```text
+# output would be
+[+] Running LLVM Commands in multiprocessing mode.
+[+] Finished Building LLVM Bitcode files
+[+] Script containing all LLVM Build Commands:path/to/llvm_bc_out/llvm_build.sh
+```
+
+Run llvm link.
+
+```python
+from helper.link import LLVMLink
+
+def test(self):
+    kwargs = {
+        'llvm_bc_out': '/home/liuqiang/Desktop/linux-3.18.20-llvm-bitcode',
+    }
+    llvm_link = LLVMLink(**kwargs)
+    status = llvm_link.setup()
+    if status is not None:
+        print(status)
+        return
+    llvm_link.perform()
+```
+
+```text
+# output would be
+[+] To check BC file: path/to/llvm_bc_out/vmlinux.llvm.bc
+```
+
 ## Others
 
 ### port dr_checker to clang-9
