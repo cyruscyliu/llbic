@@ -1,6 +1,9 @@
+import os
 from unittest import TestCase
 
 from helper.link import LLVMLink
+
+home = '/home/liuqiang/Desktop'
 
 
 def link(**kwargs):
@@ -15,6 +18,12 @@ def link(**kwargs):
 class TestLLVMLink(TestCase):
     def test_31820(self):
         kwargs = {
-            'llvm_bc_out': '/home/liuqiang/Desktop/linux-3.18.20-llvm-bitcode',
+            'llvm_bc_out': os.path.join('linux-3.18.20-llvm-bitcode'),
+        }
+        link(**kwargs)
+
+    def test_2632(self):
+        kwargs = {
+            'llvm_bc_out': os.path.join('linux-2.6.32-llvm-bitcode'),
         }
         link(**kwargs)
