@@ -20,6 +20,7 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 |:---:|:---:|:---:|:---:|:---:|:---:|
 |[mips-linux-3.18.20](./arch/mips/linux-3.18.20.md)|mips|3.18.20|9|Y|Y|
 |[arm-linux-3.18.20](./arch/arm/linux-3.18.20.md)|arm|3.18.20|9|Y|N|
+|[arm-linux-2.6.32](./arch/arm/linux-2.6.32.md)|arm|2.6.32|9|Y|N|
 
 ## Quick Start
 
