@@ -10,14 +10,6 @@
 ### toolchains
 `mips-openwrt-linux-`
 
-### commands
-```shell script
-export STAGING_DIR=/home/liuqiang/Desktop/staging_dir
-make V=1 ARCH=mips CROSS_COMPILE=$STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux- >makeout.txt 2>&1
-python3.7 -m unittest tests.test_llvm_compile.TestLLVMCompile.test_mips_31820
-python3.7 -m unittest tests.test_llvm_link.TestLLVMLink.test_mips_31820
-```
-
 # issues
 
 ### unexpected token at start of statement error
