@@ -123,6 +123,7 @@ sed -i -r "s/sigdne/signed/" arch/arm/kernel/ptrace.c
 >[Click and see details](https://lkml.org/lkml/2012/10/30/521) for testmgr.c.
 >[Click and see details](https://lkml.org/lkml/2012/10/30/376) for hmac.c.
 >[Click and see details](https://www.redhat.com/archives/dm-devel/2014-September/msg00119.html) for libcrc32c.c
+>[Click and see details](https://www.redhat.com/archives/dm-devel/2014-September/msg00110.html) for SHASH_DESC_ON_STACK.
 
 ### invalid instruction
 
