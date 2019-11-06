@@ -63,6 +63,7 @@ def _process_dir(llvm_bc_out):
     to_test_bc = os.path.join(llvm_bc_out, 'vmlinux.llvm.bc')
     to_test_ll = os.path.join(llvm_bc_out, 'vmlinux.llvm.ll')
     all_link_files = []
+    failed_cmds = []
     for root, dirs, files in os.walk(llvm_bc_out):
         link_files = []
         if not len(files):
@@ -80,8 +81,15 @@ def _process_dir(llvm_bc_out):
                 link_files.append(link_file)
         if not len(link_files):
             continue
-        os.system('llvm-link-9 ' + ' '.join(link_files) + ' -o ' + built_in_bc)
-        all_link_files.append(built_in_bc)
-    os.system('llvm-link-9 ' + ' '.join(all_link_files) + ' -o ' + to_test_bc)
-    print('To check BC file:' + to_test_bc)
+        cmd = 'llvm-link-9 ' + ' '.join(link_files) + ' -o ' + built_in_bc
+        result = os.system(cmd)
+        if not result:
+            all_link_files.append(built_in_bc)
+        else:
+            failed_cmds.append(cmd)
+    os.system('llvm-link-9 -v ' + ' '.join(all_link_files) + ' -o ' + to_test_bc)
+    print('[+] To check BC file:' + to_test_bc)
+    for failed_cmd in failed_cmds:
+        print('[-] Command Failed: {}'.format(failed_cmd))
+
     return True
