@@ -39,3 +39,15 @@ class TestLLVMCompile(TestCase):
             'kernel_src_dir': os.path.join(home, 'linux-3.18.20')
         }
         compile_(**kwargs)
+
+    def test_arm_2632(self):
+        kwargs = {
+            'makeout': os.path.join(home, 'linux-2.6.32/makeout.txt'),
+            'clangbin': '/usr/bin/clang-9',
+            'llvm_bc_out': os.path.join(home, 'linux-2.6.32-llvm-bitcode'),
+            'compiler_name': os.path.join(
+                home, 'staging_dir/toolchain-arm_v5t_gcc-4.3.3+cs_uClibc-0.9.30.1_eabi/usr/bin/arm-openwrt-linux-gcc'),
+            'arch': 'arm',
+            'kernel_src_dir': os.path.join(home, 'linux-2.6.32')
+        }
+        compile_(**kwargs)
