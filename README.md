@@ -19,6 +19,7 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 |build issues collection|arch|linux version|clang version|compile to bc|link all bc|
 |:---:|:---:|:---:|:---:|:---:|:---:|
 |[mips-linux-3.18.20](./arch/mips/linux-3.18.20.md)|mips|3.18.20|9|Y|Y|
+|[arm-linux-3.18.20](./arch/arm/linux-3.18.20.md)|arm|3.18.20|9|Y|N|
 
 ## Others
 
