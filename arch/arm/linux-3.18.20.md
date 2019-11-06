@@ -202,19 +202,6 @@ ldralb lr, [r1], #1
 
 >just like above, subges -> subsge.
 
-### expected string in directive
-
-```text
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/mm/proc-arm926.S:477:30: error: expected string in directive
- .section ".proc.info.init", #alloc, #execinstr
-   
-```
-
-##### solutions
-
->Remove #execinstr.
->[Click and see details](https://android.googlesource.com/kernel/goldfish/+/0d4b8de147d624c421859da03ee53c9fc031f982%5E2..0d4b8de147d624c421859da03ee53c9fc031f982/)
-
 ###  operand must be a register in range [r0, r14] or apsr_nzcv
 
 ```text
@@ -247,7 +234,7 @@ static void __naked
 
 >[Click and see details.](https://lkml.org/lkml/2018/10/16/104)
 
-### expected string indirective
+### expected string in directive
 
 ```text
 /home/liuqiang/Desktop/linux-3.18.20/arch/arm/mm/proc-arm926.S:477:30: error: expected string in directive
