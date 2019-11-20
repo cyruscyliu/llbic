@@ -1,17 +1,9 @@
 from unittest import TestCase
-from helper.compile import LLVMCompile
 import os
 
+from wrapper import compile_
+
 home = '/home/liuqiang/Desktop'
-
-
-def compile_(**kwargs):
-    llvm_compile = LLVMCompile(**kwargs)
-    status = llvm_compile.setup()
-    if status is not None:
-        print(status)
-        return
-    llvm_compile.perform()
 
 
 class TestLLVMCompile(TestCase):
