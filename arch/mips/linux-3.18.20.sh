@@ -6,7 +6,7 @@ sed -i -r "s/\"\/\^->\/\{s:->#\\\\\(\.\*\\\\\):\/\* \\\\1 \*\/:; \\\\/\/\^->\/\{
 sed -i -r "/csum_ipv6_magic\(const struct in6_addr \*saddr,/{N;N;N;N;s/$/\n\t__wsum tmp;\n/}" arch/mips/include/asm/checksum.h
 sed -i -r "s/: \"=r\" \(sum\), \"=r\" \(proto\)/: \"=\&r\" \(sum\), \"=\&r\" \(tmp\)/" arch/mips/include/asm/checksum.h
 sed -i -r "s/\"0\" \(htonl\(len\)\), \"1\" \(htonl\(proto\)\), \"r\" \(sum\)\);/\"0\" \(htonl\(len\)\), \"r\" \(htonl\(proto\)\), \"r\" \(sum\)\);/" arch/mips/include/asm/checksum.h
-grep fault@function -rl | xargs -l sed -i -r "s/fault@function/fault,@function/"
+grep fault@function -rl arch/mips | xargs -l sed -i -r "s/fault@function/fault,@function/"
 sed -i -r "s/__BUILD_clear_\\\\clear/__build_clear_\\\\clear/" arch/mips/kernel/genex.S
 sed -i -r "/MIPS_ISA_LEVEL_RAW/d" arch/mips/kernel/entry.S
 sed -i -r "/if \(cpu_has_mips16\)/{n;N;d}" arch/mips/kernel/branch.c
