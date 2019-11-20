@@ -24,16 +24,17 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 
 ## Quick Start
 
-Prepare a buildable kernel.
-
 ```shell script
+# Prepare a buildable kernel.
 make ARCH=mips CROSS_COMPILE=path/to/cross_compiler_prefix V=1 >makeout.txt 2>&1
+# c-ml-vmlinux.bc by dr_checker
 python wrapper.py dr_checker compile \
   path/to/linux-source-code/makeout.txt \
   mips \
   /usr/bin/clang cross_compiler_prefix-gcc \
   path/to/linux-source-code path/to/linux-source-code-llvm-bitcode
 ```
-## Others
 
+## Others
++ [dr_checker](https://github.com/ucsb-seclab/dr_checker)
 + [port dr_checker to clang-9](./doc/port-dr_checker-2-clang-9.md)
