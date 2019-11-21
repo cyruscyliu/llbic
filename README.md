@@ -5,7 +5,7 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 `build issues collection` and a learning material of LLVM compiler. BTW, `llbic` is short of LLVM Linux Build Issues
  Collection.
  
- Generally, compiling Linux kernel with LLVM consists several tasks listed below.
+ Generally, compiling Linux kernel with LLVM consists of several tasks listed below.
  + For mainline Linux kernel, compile and assembly all source code targeting to a specific architecture to LLVM byte 
  code, and then, link them together. I denote this task as `ML-vmlinux.bc`. This task does consist of `C-ML-vmliux.bc`
  and `L-ML-vmlinux.bc`, which is easily to be concluded, according to the state of the art techniques.
