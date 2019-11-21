@@ -7,10 +7,6 @@ import sys
 final_init_built_in = False
 final_init_version = False
 
-dot = Digraph(comment='build dependency')
-dot.attr(rankdir='LR')
-dot.attr(ratio='compress')
-
 
 def valid_command(command_split, indicator):
     return len(command_split) and command_split[0].endswith(indicator) or \
@@ -85,7 +81,7 @@ def parse_ar_target_and_sources(command_split):
     return target, sources
 
 
-def main(path_to_makeout):
+def find_dependency(path_to_makeout, graph):
     commands = []
     with open(path_to_makeout) as f:
         for line in f:
@@ -97,32 +93,34 @@ def main(path_to_makeout):
         if valid_command(items, '-gcc'):
             target, source = parse_gcc_target_and_source(items)
             if target is not None:
-                dot.edge(source, target)
+                graph.edge(source, target)
         if valid_command(items, '-ld'):
             target, sources = parse_ld_target_and_sources(items)
             if target is not None:
                 for source in sources:
-                    dot.edge(source, target)
+                    graph.edge(source, target)
         if valid_command(items, '-ar'):
             target, sources = parse_ar_target_and_sources(items)
             if len(sources):
                 for source in sources:
-                    dot.edge(source, target)
+                    graph.edge(source, target)
             else:
                 nodes_to_remove.append(target)
 
+    graph.remove(nodes_to_remove)
+
+
+def dot_remove(self, nodes_to_remove):
     # remove useless node
     for node_to_remove in nodes_to_remove:
         target_node_is_useless = None
-        for node in dot.body:
+        for node in self.body:
             if node.strip().startswith('"' + node_to_remove):
                 target_node_is_useless = node
                 break
         if target_node_is_useless is None:
             continue
-        dot.body.remove(target_node_is_useless)
-    dot.render('makeout.gv', view=False)
-    print('makeout.gv and makeout.gv.pdf at {}'.format(os.path.dirname(os.path.realpath(path_to_makeout))))
+        self.body.remove(target_node_is_useless)
 
 
 if __name__ == '__main__':
@@ -130,4 +128,12 @@ if __name__ == '__main__':
         print('usage python {} path/to/makeout.txt'.format(sys.argv[0]))
         exit(-1)
     path_to_makeout = sys.argv[1]
-    main(path_to_makeout)
+
+    # prepare the dot
+    setattr(Digraph, 'remove', dot_remove)
+    graph = Digraph(comment='build dependency')
+    graph.attr(rankdir='LR')
+    graph.attr(ratio='compress')
+    find_dependency(path_to_makeout, graph)
+    graph.render('makeout.gv', view=False)
+    print('makeout.gv and makeout.gv.pdf at {}'.format(os.path.dirname(os.path.realpath(path_to_makeout))))
