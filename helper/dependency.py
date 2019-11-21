@@ -118,6 +118,8 @@ def main(path_to_makeout):
             if node.strip().startswith('"' + node_to_remove):
                 target_node_is_useless = node
                 break
+        if target_node_is_useless is None:
+            continue
         dot.body.remove(target_node_is_useless)
     dot.render('makeout.gv', view=False)
     print('makeout.gv and makeout.gv.pdf at {}'.format(os.path.dirname(os.path.realpath(path_to_makeout))))
