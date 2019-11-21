@@ -68,5 +68,5 @@ by `V=1 >makeout.txt 2>&1`. To generate bitcode, we replace gcc with `emit-llvm`
 As a matter of fact, only .c file can emit LLVM-IR such that we can not analysis .S file in LLVM-IR level.
 In the phase of linking all bitcode files, it is essential to known which files to link to avoid of multi-defined symbols. We
 analyze all gcc-commands and ld-commands to find the dependency between source files and the final target: vmlinux.
-The dependency is of course a tree, and all leafs should be linked together. As we mentioned before, only .c file can
-be linked, so we can only get a partial bitcode vmlinux.
+The dependency is of course a [tree](./arch/mips/linux-3.18.20.gv.pdf), and all leafs should be linked together. As we 
+mentioned before, only .c file can be linked, so we can only get a partial bitcode vmlinux.
