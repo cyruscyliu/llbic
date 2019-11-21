@@ -24,23 +24,37 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 
 ## Quick Start
 
->I recommend you using Docker such that all commands in this project can be ran directly.
+I recommend you using Docker such that all commands in this project can be ran directly.
 
 ```shell script
 git clone git@github.com:cyruscyliu/llbic.git && cd llbic
-docker build -t llbic:latest . # use Dockerfile to build an image whose name:tag is llbic:latest
-docker run -it -v $PWD/llbic:/home/llbic/llbic llbic:latest /bin/bash # get an interractive shell
-
-# Prepare a buildable kernel.
-make ARCH=mips CROSS_COMPILE=path/to/cross_compiler_prefix V=1 >makeout.txt 2>&1
-# c-ml-vmlinux.bc by dr_checker
-python wrapper.py dr_checker compile \
-  path/to/linux-source-code/makeout.txt \
-  mips \
-  /usr/bin/clang cross_compiler_prefix-gcc \
-  path/to/linux-source-code path/to/linux-source-code-llvm-bitcode
+docker build -t llbic:latest .
+docker run -it -v $PWD:/mnt/llbic llbic:latest /bin/bash
 ```
 
+Take [mips-linux-3.18.20](./arch/mips/linux-3.18.20.md) as an example.
+
+```shell script
+export BUILD=/home/root/build
+
+# a buildable kernel
+export STAGING_DIR=/home/root/build/staging_dir
+cd $BUILD/linux-3.18.20
+make ARCH=mips CROSS_COMPILE=$STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux- V=1 > makeout.txt 2>&1
+
+# patch this kernel
+cp /home/root/llbic/arch/mips/linux-3.18.20.sh && ./linux-3.18.20.sh
+
+cd /home/root/llbic
+# dependency graph
+python helper/dependency.py $BUILD/linux-3.18.20/makeout.txt
+# c-ml-vmlinux.bc by dr_checker
+cd /home/root/llbic
+python wrapper.py dr_checker compile $BUILD/linux-3.18.20/makeout.txt mips /usr/bin/clang-9 $STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux-gcc $BUILD/linux-3.18.20/ $BUILD/linux-3.18.20-llvm-bitcode
+```
+
+>NOTE: For arm-linux.2.6.32, please run `sed -i -r "s/defined\(@val\)/@val/" kernel/timeconst.pl` first.
+
 ## Others
-+ [dr_checker](https://github.com/ucsb-seclab/dr_checker)
++ This initial idea was inspired by [dr_checker](https://github.com/ucsb-seclab/dr_checker).
 + [port dr_checker to clang-9](./doc/port-dr_checker-2-clang-9.md)
