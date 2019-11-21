@@ -43,7 +43,7 @@ cd $BUILD/linux-3.18.20
 make ARCH=mips CROSS_COMPILE=$STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux- V=1 > makeout.txt 2>&1
 
 # patch this kernel
-cp /home/root/llbic/arch/mips/linux-3.18.20.sh && ./linux-3.18.20.sh
+cp /home/root/llbic/arch/mips/linux-3.18.20.sh . && ./linux-3.18.20.sh
 
 cd /home/root/llbic
 # dependency graph
