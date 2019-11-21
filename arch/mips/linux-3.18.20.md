@@ -5,21 +5,6 @@
 + toolchains `mips-openwrt-linux-`
 + patch `linux-3.18.20.sh`
 
-# commands
-
-```shell script
-# buildable kernel
-export STAGING_DIR=/home/someone/staging_dir
-make ARCH=mips CROSS_COMPILE=$STAGING_DIR/staging_dir/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux-
-
-# c_ml_vmlinux.bc (ported from dr_checker)
-python wrapper.py dr_checker compile \
-  /home/someone/linux-3.28.20/makeout.txt \
-  mips \
-  /usr/bin/clang-9 $STAGING_DIR/staging_dir/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux-gcc \
-  /home/some/linux-3.18.20-patched /home/someone/linux-3.18.20-llvm-bitcode
-```
-
 # issues
 
 ### unexpected token at start of statement error
