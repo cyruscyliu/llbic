@@ -51,6 +51,7 @@ python helper/dependency.py $BUILD/linux-3.18.20/makeout.txt
 # c-ml-vmlinux.bc by dr_checker
 cd /home/root/llbic
 python wrapper.py dr_checker compile $BUILD/linux-3.18.20/makeout.txt mips /usr/bin/clang-9 $STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux-gcc $BUILD/linux-3.18.20/ $BUILD/linux-3.18.20-llvm-bitcode
+python wrapper.py dr_checker link $BUILD/linux-3.18.20/makeout.txt /usr/bin/llvm-link-9 $BUILD/linux-3.18.20-llvm-bitcode
 ```
 
 >NOTE: For arm-linux.2.6.32, please run `sed -i -r "s/defined\(@val\)/@val/" kernel/timeconst.pl` first.
