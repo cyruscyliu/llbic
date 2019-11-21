@@ -93,7 +93,7 @@ def _process_dependency_and_link(makeout, llvm_link, llvm_bc_out):
     find_dependency(makeout, graph)
     all_link_files = graph.leafs()
 
-    # link all required files together
+    # link all required files together, but only c code theoretically
     link_files = []
     for all_link_file in all_link_files:
         name,_,  extent = str(all_link_file).partition('.')
@@ -107,7 +107,6 @@ def _process_dependency_and_link(makeout, llvm_link, llvm_bc_out):
     os.chdir(llvm_bc_out)
     os.system(cmd)
     os.chdir(cwd)
-    print(cmd)
     print('[+] To check BC file:' + built_in_bc)
 
     return True
