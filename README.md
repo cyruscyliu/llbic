@@ -24,7 +24,13 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 
 ## Quick Start
 
+>I recommend you using Docker such that all commands in this project can be ran directly.
+
 ```shell script
+git clone git@github.com:cyruscyliu/llbic.git && cd llbic
+docker build -t llbic:latest . # use Dockerfile to build an image whose name:tag is llbic:latest
+docker run -it -v $PWD/llbic:/home/llbic/llbic llbic:latest /bin/bash # get an interractive shell
+
 # Prepare a buildable kernel.
 make ARCH=mips CROSS_COMPILE=path/to/cross_compiler_prefix V=1 >makeout.txt 2>&1
 # c-ml-vmlinux.bc by dr_checker
