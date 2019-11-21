@@ -56,5 +56,5 @@ python wrapper.py dr_checker compile $BUILD/linux-3.18.20/makeout.txt mips /usr/
 >NOTE: For arm-linux.2.6.32, please run `sed -i -r "s/defined\(@val\)/@val/" kernel/timeconst.pl` first.
 
 ## Others
-+ This initial idea was inspired by [dr_checker](https://github.com/ucsb-seclab/dr_checker).
++ The initial idea was inspired by [dr_checker](https://github.com/ucsb-seclab/dr_checker).
 + [port dr_checker to clang-9](./doc/port-dr_checker-2-clang-9.md)
