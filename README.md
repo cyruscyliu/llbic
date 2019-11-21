@@ -18,9 +18,9 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 ## Support List
 |build issues collection|arch|linux version|clang version|c-ml-vmlinux.bc|l-vm-vmlinux.bc|
 |:---:|:---:|:---:|:---:|:---:|:---:|
-|[mips-linux-3.18.20](./arch/mips/linux-3.18.20.md)|mips|3.18.20|9|Y|N|
-|[arm-linux-3.18.20](./arch/arm/linux-3.18.20.md)|arm|3.18.20|9|Y|N|
-|[arm-linux-2.6.32](./arch/arm/linux-2.6.32.md)|arm|2.6.32|9|Y|N|
+|[mips-linux-3.18.20](./arch/mips/linux-3.18.20.md)|mips|3.18.20|9|Y|Partial|
+|[arm-linux-3.18.20](./arch/arm/linux-3.18.20.md)|arm|3.18.20|9|Y|Partial|
+|[arm-linux-2.6.32](./arch/arm/linux-2.6.32.md)|arm|2.6.32|9|Y|Partial|
 
 ## Quick Start
 
@@ -59,3 +59,14 @@ python wrapper.py dr_checker link $BUILD/linux-3.18.20/makeout.txt /usr/bin/llvm
 ## Others
 + The initial idea was inspired by [dr_checker](https://github.com/ucsb-seclab/dr_checker).
 + [port dr_checker to clang-9](./doc/port-dr_checker-2-clang-9.md)
+
+## Algorithm
+
+The NAIVE algorithm is based on [dr_checker](https://github.com/ucsb-seclab/dr_checker), which is easy to understand, 
+taking place of gcc with clang and linking generated bitcode files with llvm-link. We first save all makefile commands 
+by `V=1 >makeout.txt 2>&1`. To generate bitcode, we replace gcc with `emit-llvm` mode clang and remove unsupported flags.
+As a matter of fact, only .c file can emit LLVM-IR such that we can not analysis .S file in LLVM-IR level.
+In the phase of linking all bitcode files, it is essential to known which files to link to avoid of multi-defined symbols. We
+analyze all gcc-commands and ld-commands to find the dependency between source files and the final target: vmlinux.
+The dependency is of course a tree, and all leafs should be linked together. As we mentioned before, only .c file can
+be linked, so we can only get a partial bitcode vmlinux.
