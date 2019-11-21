@@ -1,14 +1,8 @@
 # overview 
 
-### specific
-`arm`
-`3.18.20`
-
-### buildable kernel
-`linux-3.18.20 patched by OpenWrt`
-
-### toolchains
-`arm-openwrt-linux-`
++ specific `arm` `3.18.20`
++ buildable kernel `linux-3.18.20 patched by OpenWrt`
++ toolchains `arm-openwrt-linux-`
 
 # issues
 
@@ -127,6 +121,22 @@ index e056c9a9aa9d..fa7c6e5c17e7 100644
 >[Click and see details.](https://lore.kernel.org/patchwork/patch/1040350/) BYW, patches in 
 >this link are not complete.
 
+```shell script
+find ./arch/arm -name "*.[hSc]" -exec sed -i -r "s/^((\s*[._a-zA-Z0-9]*[\:\(])?\s*)([a-z]{3})(eq|ne|cs|hs|cc|lo|mi|pl|vs|vc|hi|ls|ge|lt|gt|le|al)([a-z]{1,2})(\s)/\1\3\5\4\6/" {} \;
+sed -i -r "s/str\\\\cond\\\\\(\)b/strb\\\\cond/" arch/arm/lib/copy_from_user.S
+sed -i -r "s/str\\\\cond\\\\\(\)b/strb\\\\cond/" arch/arm/lib/memcpy.S
+sed -i -r "s/ldr\\\\cond\\\\\(\)b/ldrb\\\\cond/" arch/arm/lib/copy_to_user.S
+sed -i -r "s/ldr\\\\cond\\\\\(\)b/ldrb\\\\cond/" arch/arm/lib/memcpy.S
+sed -i -r "s/\\\\instr\\\\cond\\\\\(\)bt/\\\\instr\\\\\(\)bt\\\\cond/" arch/arm/include/asm/assembler.h 
+sed -i -r "s/\\\\instr\\\\cond\\\\\(\)t/\\\\instr\\\\\(\)t\\\\cond/" arch/arm/include/asm/assembler.h 
+sed -i -r "s/strneb/strbne/" arch/arm/lib/testclearbit.S
+sed -i -r "s/streqb/strbeq/" arch/arm/lib/testsetbit.S
+# fix fp
+sed -i -r "s/lenhgt/length/" arch/arm/mm/mmu.c
+sed -i -r "s/sigdne/signed/" arch/arm/mm/alignment.c
+sed -i -r "s/sigdne/signed/" arch/arm/kernel/ptrace.c
+```
+
 ###  too many positional arguments
 
 ```text
@@ -142,6 +152,10 @@ index e056c9a9aa9d..fa7c6e5c17e7 100644
 
 >Remove `,`.
 >[Click and see detials.](https://lkml.org/lkml/2019/1/3/545)
+
+```shell script
+sed -i -r "s/r0, r3, r4, r5, r6, r7, r8, r9, ip, , abort=19f/r0, r3, r4, r5, r6, r7, r8, r9, ip, abort=19f/" arch/arm/lib/copy_template.S
+```
 
 ###  invalid instruction
 
@@ -239,6 +253,10 @@ static void __naked
 ```text
 /home/liuqiang/Desktop/linux-3.18.20/arch/arm/mm/proc-arm926.S:477:30: error: expected string in directive
  .section ".proc.info.init", #alloc, #execinstr
+```
+
+```shell script
+sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/mm/proc-arm926.S
 ```
 
 ##### solutions
