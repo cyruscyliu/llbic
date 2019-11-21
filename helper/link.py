@@ -1,4 +1,4 @@
-'''
+"""
 Copyright (c) 2015, The Regents of the University of California
 All rights reserved.
 
@@ -22,10 +22,33 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
-'''
+"""
 import os
+import networkx as nx
+import matplotlib
+
+matplotlib.use('agg')
+import matplotlib.pyplot as plt
 
 from helper.base import Component
+from helper.dependency import find_dependency
+
+
+class GraphWrapper(object):
+    def __init__(self):
+        self.graph = nx.DiGraph()
+
+    def edge(self, from_node, to_node):
+        self.graph.add_edge(to_node, from_node)
+
+    def remove(self, nodes):
+        assert isinstance(nodes, list)
+        for node in nodes:
+            self.graph.remove_node(node)
+
+    def leafs(self):
+        vmlinux = nx.descendants(self.graph, 'vmlinux')
+        return [x for x in vmlinux if self.graph.out_degree(x) == 0 and self.graph.in_degree(x) == 1]
 
 
 class LLVMLink(Component):
@@ -34,15 +57,20 @@ class LLVMLink(Component):
     '''
 
     def __init__(self, **kwargs):
+        self.curr_makeout = kwargs.pop('makeout', None)
+        self.clang_bin = kwargs.pop('clangbin', None)
         self.llvm_bc_out = kwargs.pop('llvm_bc_out', None)
 
     def setup(self):
+        if (not os.path.exists(self.curr_makeout)) or \
+                (not os.path.exists(self.clang_bin)):
+            return "Required files(" + str(self.curr_makeout) + ", " + str(self.clang_bin) + ") do not exist"
         if not os.path.exists(self.llvm_bc_out) or not os.path.isdir(self.llvm_bc_out):
             return 'Provided LLVM Bitcode directory:' + str(self.llvm_bc_out) + ' does not exist.'
         return None
 
     def perform(self):
-        return _process_dir(self.llvm_bc_out)
+        return _process_dependency_and_link(self.curr_makeout, self.clang_bin, self.llvm_bc_out)
 
     def get_name(self):
         return 'LLVMLink'
@@ -59,37 +87,27 @@ def _is_bit_code_file(curr_file):
     return conts == b'BC'
 
 
-def _process_dir(llvm_bc_out):
-    to_test_bc = os.path.join(llvm_bc_out, 'vmlinux.llvm.bc')
-    to_test_ll = os.path.join(llvm_bc_out, 'vmlinux.llvm.ll')
-    all_link_files = []
-    failed_cmds = []
-    for root, dirs, files in os.walk(llvm_bc_out):
-        link_files = []
-        if not len(files):
-            continue
-        built_in_bc = os.path.join(root, 'built-in.llvm.bc')
-        if 'built-in.llvm.bc' in files:
-            files.remove('built-in.llvm.bc')
-        if 'vmlinux.llvm.bc' in files:
-            files.remove('vmlinux.llvm.bc')
-        if 'vmlinux.llvm.ll' in files:
-            files.remove('vmlinux.llvm.ll')
-        for file_ in files:
-            link_file = os.path.join(root, file_)
-            if _is_bit_code_file(link_file):
-                link_files.append(link_file)
-        if not len(link_files):
-            continue
-        cmd = 'llvm-link-9 ' + ' '.join(link_files) + ' -o ' + built_in_bc
-        result = os.system(cmd)
-        if not result:
-            all_link_files.append(built_in_bc)
-        else:
-            failed_cmds.append(cmd)
-    os.system('llvm-link-9 -v ' + ' '.join(all_link_files) + ' -o ' + to_test_bc)
-    print('[+] To check BC file:' + to_test_bc)
-    for failed_cmd in failed_cmds:
-        print('[-] Command Failed: {}'.format(failed_cmd))
+def _process_dependency_and_link(makeout, llvm_link, llvm_bc_out):
+    # find denpendency
+    graph = GraphWrapper()
+    find_dependency(makeout, graph)
+    all_link_files = graph.leafs()
+
+    # link all required files together
+    link_files = []
+    for all_link_file in all_link_files:
+        name,_,  extent = str(all_link_file).partition('.')
+        if extent == 'c':
+            link_files.append(name + '.llvm.bc')
+    built_in_bc = os.path.join(llvm_bc_out, 'vmlinux.llvm.bc')
+    cmd = llvm_link + ' ' + ' '.join(link_files) + ' -o ' + built_in_bc
+
+    # let's do it
+    cwd = os.getcwd()
+    os.chdir(llvm_bc_out)
+    os.system(cmd)
+    os.chdir(cwd)
+    print(cmd)
+    print('[+] To check BC file:' + built_in_bc)
 
     return True
