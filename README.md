@@ -48,9 +48,12 @@ cp /home/root/llbic/arch/mips/linux-3.18.20.sh . && ./linux-3.18.20.sh
 cd /home/root/llbic
 # dependency graph
 python helper/dependency.py $BUILD/linux-3.18.20/makeout.txt
-# c-ml-vmlinux.bc by dr_checker
+
+# ml-vmlinux.bc
 cd /home/root/llbic
+# c-ml-vmlinux.bc by NAIVE
 python wrapper.py dr_checker compile $BUILD/linux-3.18.20/makeout.txt mips /usr/bin/clang-9 $STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux-gcc $BUILD/linux-3.18.20/ $BUILD/linux-3.18.20-llvm-bitcode
+# l-ml-vmlinux.bc by NAIVE
 python wrapper.py dr_checker link $BUILD/linux-3.18.20/makeout.txt /usr/bin/llvm-link-9 $BUILD/linux-3.18.20-llvm-bitcode
 ```
 
@@ -62,6 +65,13 @@ python wrapper.py dr_checker link $BUILD/linux-3.18.20/makeout.txt /usr/bin/llvm
 
 ## Algorithm
 
+|description|NAIVE|WLLVM|
+|:---:|:---:|:---:|
+|.S/.c ---clang---> .o(elf)|N|Y|
+|.c ---clang---> .bc|Y|Y|
+|.o ---ld---> vmlinux|N|Y|
+|.bc ---llvm-link---> vmlinux.bc|Y|Y
+
 The NAIVE algorithm is based on [dr_checker](https://github.com/ucsb-seclab/dr_checker), which is easy to understand, 
 taking place of gcc with clang and linking generated bitcode files with llvm-link. We first save all makefile commands 
 by `V=1 >makeout.txt 2>&1`. To generate bitcode, we replace gcc with `emit-llvm` mode clang and remove unsupported flags.
@@ -69,7 +79,8 @@ As a matter of fact, only .c file can emit LLVM-IR such that we can not analysis
 In the phase of linking all bitcode files, it is essential to known which files to link to avoid of multi-defined symbols. We
 analyze all gcc-commands and ld-commands to find the dependency between source files and the final target: vmlinux.
 The dependency is of course a [tree](./arch/mips/linux-3.18.20.gv.pdf), and all leafs should be linked together. As we 
-mentioned before, only .c file can be linked, so we can only get a partial bitcode vmlinux.
+mentioned before, only .c file can be linked, so we can only get a partial bitcode vmlinux. **If you only need vmlinux.bc
+, then NAIVE is simple and helpful.**
 
 The [WLLVM](https://github.com/travitch/whole-program-llvm) provides python-based compiler wrappers that work in two 
 steps. The wrappers first invoke the compiler as normal. Then, for each object file, they call a bitcode compiler to 
@@ -78,4 +89,6 @@ object file(e.g. objcopy). When object files are linked together, the contents o
 concatenated (so we don't lose the locations of any of the constituent bitcode files). After the build completes, 
 one can use a WLLVM utility to read the contents of the dedicated section and link all of the bitcode into a single 
 whole-program bitcode file(llvm-link). This utility works for both executable and native libraries. The `NAIVE` 
-algorithm is definitely a subset of the WLLVM w/ the ability to generate an executable vmlinux.
+algorithm is definitely a subset of the WLLVM w/ the ability to generate an executable vmlinux. **If you need vmlinux 
+compiled by clang, use wllvm and I guess you have to solve several unsupported flags.**
+
