@@ -92,3 +92,6 @@ whole-program bitcode file(llvm-link). This utility works for both executable an
 algorithm is definitely a subset of the WLLVM w/ the ability to generate an executable vmlinux. **If you need vmlinux 
 compiled by clang, use wllvm and I guess you have to solve several unsupported flags.**
 
+## Future Work
++ Port WLLVM to old Linux kernel.
++ Introduce gcc LTO framework and GoldLinker.
