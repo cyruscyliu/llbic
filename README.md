@@ -79,8 +79,10 @@ As a matter of fact, only .c file can emit LLVM-IR such that we can not analysis
 In the phase of linking all bitcode files, it is essential to known which files to link to avoid of multi-defined symbols. We
 analyze all gcc-commands and ld-commands to find the dependency between source files and the final target: vmlinux.
 The dependency is of course a [tree](./arch/mips/linux-3.18.20.gv.pdf), and all leafs should be linked together. As we 
-mentioned before, only .c file can be linked, so we can only get a partial bitcode vmlinux. **If you only need vmlinux.bc
-, then NAIVE is simple and helpful.**
+mentioned before, only .c file can be linked, so we can only get a partial bitcode vmlinux. In practice, we still found multiple
+defined symbols when we link all leafs together because host `ld` just use the first occurance of the symbol definition
+by ignoring others while `llvm-link` has no such ability. We then link the bitcode files one by one according to their orders
+in the makefile commands. **If you only need vmlinux.bc ,then NAIVE is simple and helpful.**
 
 The [WLLVM](https://github.com/travitch/whole-program-llvm) provides python-based compiler wrappers that work in two 
 steps. The wrappers first invoke the compiler as normal. Then, for each object file, they call a bitcode compiler to 
@@ -90,7 +92,7 @@ concatenated (so we don't lose the locations of any of the constituent bitcode f
 one can use a WLLVM utility to read the contents of the dedicated section and link all of the bitcode into a single 
 whole-program bitcode file(llvm-link). This utility works for both executable and native libraries. The `NAIVE` 
 algorithm is definitely a subset of the WLLVM w/ the ability to generate an executable vmlinux. **If you need vmlinux 
-compiled by clang, use wllvm and I guess you have to solve several unsupported flags.**
+compiled by clang, use wllvm and I guess you have to solve the problem of unsupported flags.**
 
 ## Future Work
 + Port WLLVM to old Linux kernel.

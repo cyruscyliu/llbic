@@ -82,6 +82,7 @@ def parse_ar_target_and_sources(command_split):
 
 
 def find_dependency(path_to_makeout, graph):
+    ordered_nodes = []
     commands = []
     with open(path_to_makeout) as f:
         for line in f:
@@ -94,20 +95,26 @@ def find_dependency(path_to_makeout, graph):
             target, source = parse_gcc_target_and_source(items)
             if target is not None:
                 graph.edge(source, target)
+                ordered_nodes.append(source)
         if valid_command(items, '-ld'):
             target, sources = parse_ld_target_and_sources(items)
             if target is not None:
                 for source in sources:
                     graph.edge(source, target)
+                    ordered_nodes.append(source)
         if valid_command(items, '-ar'):
             target, sources = parse_ar_target_and_sources(items)
             if len(sources):
                 for source in sources:
                     graph.edge(source, target)
+                    ordered_nodes.append(source)
             else:
                 nodes_to_remove.append(target)
+                if target in ordered_nodes:
+                    ordered_nodes.remove(target)
 
     graph.remove(nodes_to_remove)
+    return ordered_nodes
 
 
 def dot_remove(self, nodes_to_remove):
@@ -134,6 +141,9 @@ if __name__ == '__main__':
     graph = Digraph(comment='build dependency')
     graph.attr(rankdir='LR')
     graph.attr(ratio='compress')
-    find_dependency(path_to_makeout, graph)
+    ordered_nodes = find_dependency(path_to_makeout, graph)
+    print(ordered_nodes)
     graph.render('makeout.gv', view=False)
-    print('makeout.gv and makeout.gv.pdf at {}'.format(os.path.dirname(os.path.realpath(path_to_makeout))))
+    with open('order.csv', 'w') as f:
+        f.write('\n'.join(ordered_nodes))
+    print('makeout.gv makeout.gv.pdf order.csv at {}'.format(os.path.dirname(os.path.realpath('./'))))
