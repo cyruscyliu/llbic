@@ -80,9 +80,10 @@ In the phase of linking all bitcode files, it is essential to known which files 
 analyze all gcc-commands and ld-commands to find the dependency between source files and the final target: vmlinux.
 The dependency is of course a [tree](./arch/mips/linux-3.18.20.gv.pdf), and all leafs should be linked together. As we 
 mentioned before, only .c file can be linked, so we can only get a partial bitcode vmlinux. In practice, we still found multiple
-defined symbols when we link all leafs together because host `ld` just use the first occurance of the symbol definition
-by ignoring others while `llvm-link` has no such ability. We then link the bitcode files one by one according to their orders
-in the makefile commands. **If you only need vmlinux.bc ,then NAIVE is simple and helpful.**
+defined symbols when we link all leafs together because host `ld` just use the first occurrence of the symbol definition
+by ignoring others while `llvm-link` must use [`-override`](http://lists.llvm.org/pipermail/llvm-commits/Week-of-Mon-20150420/272071.html) 
+explicitly . We then link the bitcode files one by one according to their orders in the makefile commands.
+**If you only need vmlinux.bc ,then NAIVE is simple and helpful.**
 
 The [WLLVM](https://github.com/travitch/whole-program-llvm) provides python-based compiler wrappers that work in two 
 steps. The wrappers first invoke the compiler as normal. Then, for each object file, they call a bitcode compiler to 

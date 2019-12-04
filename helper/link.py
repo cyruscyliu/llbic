@@ -44,7 +44,10 @@ class GraphWrapper(object):
     def remove(self, nodes):
         assert isinstance(nodes, list)
         for node in nodes:
-            self.graph.remove_node(node)
+            try:
+                self.graph.remove_node(node)
+            except nx.exception.NetworkXError as e:
+                pass
 
     def leafs(self):
         vmlinux = nx.descendants(self.graph, 'vmlinux')
@@ -87,18 +90,30 @@ def _is_bit_code_file(curr_file):
     return conts == b'BC'
 
 
+def get_ordered_link_files(all_link_files, ordered_nodes):
+    ordered_link_files = []
+    for node in ordered_nodes:
+        if node in all_link_files:
+            ordered_link_files.append(node)
+    return ordered_link_files
+
+
 def _process_dependency_and_link(makeout, llvm_link, llvm_bc_out):
     # find denpendency
     graph = GraphWrapper()
-    find_dependency(makeout, graph)
+    ordered_nodes = find_dependency(makeout, graph)
     all_link_files = graph.leafs()
+    ordered_link_files = get_ordered_link_files(all_link_files, ordered_nodes)
 
-    # link all required files together, but only c code theoretically
+    # link all required files together in order, but only c code
     link_files = []
-    for all_link_file in all_link_files:
-        name,_,  extent = str(all_link_file).partition('.')
+    for all_link_file in ordered_link_files:
+        name, _, extent = str(all_link_file).partition('.')
         if extent == 'c':
+            link_files.append('-override')
             link_files.append(name + '.llvm.bc')
+    # to avoid not enough positional comand line arguments
+    link_files.pop(0)
     built_in_bc = os.path.join(llvm_bc_out, 'vmlinux.llvm.bc')
     cmd = llvm_link + ' ' + ' '.join(link_files) + ' -o ' + built_in_bc
 
