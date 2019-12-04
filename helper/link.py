@@ -104,6 +104,7 @@ def _process_dependency_and_link(makeout, llvm_link, llvm_bc_out):
     ordered_nodes = find_dependency(makeout, graph)
     all_link_files = graph.leafs()
     ordered_link_files = get_ordered_link_files(all_link_files, ordered_nodes)
+    ordered_link_files.reverse()
 
     # link all required files together in order, but only c code
     link_files = []
