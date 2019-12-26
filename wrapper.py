@@ -26,16 +26,20 @@ def main(argv):
     algorithm = argv[1]
     action = argv[2]
 
-    if len(argv) == 9 and algorithm == 'dr_checker' and action == 'compile':
-        context = {'makeout': argv[3], 'arch': argv[4], 'clangbin': argv[5],
-                   'compiler_name': argv[6], 'kernel_src_dir': argv[7], 'llvm_bc_out': argv[8]}
+    if algorithm == 'dr_checker' and action == 'compile' and (len(argv) == 9 or (len(argv) == 10 and argv[3] == 'command-only')):
+        if len(argv) == 9:
+            context = {'makeout': argv[3], 'arch': argv[4], 'clangbin': argv[5],
+                    'compiler_name': argv[6], 'kernel_src_dir': argv[7], 'llvm_bc_out': argv[8], 'command_only' : False}
+        else:
+            context = {'makeout': argv[4], 'arch': argv[5], 'clangbin': argv[6],
+                    'compiler_name': argv[7], 'kernel_src_dir': argv[8], 'llvm_bc_out': argv[9], 'command_only' : True}
         compile_(**context)
-    elif len(argv) == 6 and algorithm == 'dr_checker' and action == 'link':
+    elif algorithm == 'dr_checker' and action == 'link' and len(argv) == 6 :
         context = {'makeout': argv[3], 'clangbin': argv[4], 'llvm_bc_out': argv[5]}
         link(**context)
     else:
         print('usage:')
-        print('\tpython wrapper.py dr_checker compile path/to/makeout.txt arch path/to/clang '
+        print('\tpython wrapper.py dr_checker compile [command-only] path/to/makeout.txt arch path/to/clang '
               'path/to/gcc  path/to/kernel_src_dir path/to/llvm_bc_out')
         print('\tpython wrapper.py dr_checker link path/to/makeout.txt path/to/llvm-link path/to/llvm_bc_out')
 

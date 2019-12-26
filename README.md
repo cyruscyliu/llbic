@@ -46,13 +46,18 @@ make ARCH=mips CROSS_COMPILE=$STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro_uCl
 cp /home/root/llbic/arch/mips/linux-3.18.20.sh . && ./linux-3.18.20.sh
 
 cd /home/root/llbic
-# dependency graph
+# dependency graph (if needed)
 python helper/dependency.py $BUILD/linux-3.18.20/makeout.txt
 
 # ml-vmlinux.bc
 cd /home/root/llbic
+# part compile (generate command only)
+# c-ml-vmlinux.bc by NAIVE
+python wrapper.py dr_checker compile command-only $BUILD/linux-3.18.20/makeout.txt mips /usr/bin/clang $STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux-gcc $BUILD/linux-3.18.20/ $BUILD/linux-3.18.20-llvm-bitcode
+# full compile
 # c-ml-vmlinux.bc by NAIVE
 python wrapper.py dr_checker compile $BUILD/linux-3.18.20/makeout.txt mips /usr/bin/clang $STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux-gcc $BUILD/linux-3.18.20/ $BUILD/linux-3.18.20-llvm-bitcode
+# full link
 # l-ml-vmlinux.bc by NAIVE
 python wrapper.py dr_checker link $BUILD/linux-3.18.20/makeout.txt /usr/bin/llvm-link $BUILD/linux-3.18.20-llvm-bitcode
 ```
