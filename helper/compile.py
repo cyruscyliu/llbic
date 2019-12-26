@@ -24,6 +24,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 import os
+import json
 import logging
 
 from helper.base import Component
@@ -45,6 +46,7 @@ class LLVMCompile(Component):
         self.arch = kwargs.pop('arch', None)
         self.separate_out = kwargs.pop('out', None)
         self.kernel_src_dir = kwargs.pop('kernel_src_dir', '')
+        self.command_only = kwargs.pop('command_only', False)
 
     def setup(self):
         if (not os.path.exists(self.curr_makeout)) or \
@@ -59,15 +61,15 @@ class LLVMCompile(Component):
             return "LLVM Bitcode out should be provided."
         if self.gcc_name is None:
             return "No compiler name specified, this is needed to filter compilation lines"
-        if not os.path.exists(self.gcc_name):
-            return "Required file " + str(self.gcc_name) + " do not exist"
+        # if not os.path.exists(self.gcc_name):
+        #     return "Required file " + str(self.gcc_name) + " do not exist"
         if self.arch is None:
             return "No valid architecture provided."
         return None
 
     def perform(self):
         return _generate_llvm_bitcode(self.kernel_src_dir, self.llvm_bc_out, self.curr_makeout, self.gcc_name,
-                                      self.arch, self.clang_bin, command_output_dir=self.separate_out)
+                                      self.arch, self.clang_bin, command_output_dir=self.separate_out, command_only=self.command_only)
 
     def get_name(self):
         return "BuildLLVM"
@@ -167,6 +169,7 @@ def _get_llvm_build_str(src_root_dir, gcc_build_string, output_folder, target_ar
     :param target_arch: [1/2] depending on whether the arch is 32 or 64 bit.
     :param build_output_dir: Directory from which build commands need to be executed.
     :return: LLVM build string
+    :return: original source file string
     """
 
     orig_build_args = gcc_build_string.strip().split()[1:]
@@ -238,45 +241,89 @@ def _get_llvm_build_str(src_root_dir, gcc_build_string, output_folder, target_ar
             else:
                 modified_build_args.append(curr_op)
 
-    return ' '.join(modified_build_args)
+    return ' '.join(modified_build_args), rel_src_file_name
 
 
 def _generate_llvm_bitcode(kernel_src_dir, base_output_folder, makeout_file, gcc_prefix, target_arch, clang_path,
-                           command_output_dir=None):
+                           command_output_dir=None, command_only=False):
     output_llvm_sh_file = os.path.join(base_output_folder, 'llvm_build.sh')
-    fp_out = open(output_llvm_sh_file, 'w')
-    makeout_lines = open(makeout_file, 'r').readlines()
-    llvm_cmds = []
-    if command_output_dir is not None:
-        llvm_cmds.append('cd ' + command_output_dir + '\n')
-    for curr_line in makeout_lines:
-        curr_line = curr_line.strip()
-        if curr_line.startswith(gcc_prefix):
-            llvm_mod_str = _get_llvm_build_str(kernel_src_dir, curr_line,
-                                               base_output_folder, target_arch, clang_path,
-                                               build_output_dir=command_output_dir)
+    llvm_cmds, src_files = [], []
+
+    with open(output_llvm_sh_file, 'w') as fp_out:
+        makeout_lines = []
+        with open(makeout_file, 'r') as tmp_f:
+            makeout_lines = tmp_f.readlines()
+
+        if command_output_dir is not None:
+            llvm_cmds.append('cd ' + command_output_dir + '\n')
+
+        for curr_line in makeout_lines:
+            curr_line = curr_line.strip()
+            llvm_mod_str, src_file_str = None, None
+
+            if curr_line.startswith(gcc_prefix):
+                llvm_mod_str, src_file_str = _get_llvm_build_str(kernel_src_dir, curr_line,
+                        base_output_folder, target_arch, clang_path,
+                        build_output_dir=command_output_dir)
+
+            elif len(curr_line.split()) > 2 and curr_line.split()[1] == gcc_prefix:
+                llvm_mod_str, src_file_str = _get_llvm_build_str(kernel_src_dir, ' '.join(curr_line.split()[1:]),
+                        base_output_folder, target_arch, clang_path,
+                        build_output_dir=command_output_dir)
+            else:
+                continue
+
             fp_out.write(llvm_mod_str + '\n')
             llvm_cmds.append(llvm_mod_str)
-        elif len(curr_line.split()) > 2 and curr_line.split()[1] == gcc_prefix:
-            llvm_mod_str = _get_llvm_build_str(kernel_src_dir, ' '.join(curr_line.split()[1:]),
-                                               base_output_folder, target_arch, clang_path,
-                                               build_output_dir=command_output_dir)
-            fp_out.write(llvm_mod_str + '\n')
-            llvm_cmds.append(llvm_mod_str)
-    fp_out.close()
+            src_files.append(src_file_str)
+
+    print("[+] Script containing all LLVM Build Commands:" + output_llvm_sh_file)
+
+    if command_only:
+        output_llvm_compilation_db = os.path.join(base_output_folder, 'compile_commands.json')
+
+        print("[+] Running LLVM Command-only mode.")
+
+        # We've already get the llvm command shell script file, 
+        # now we further generate a json format compilation command database
+        compilation_database = []
+        for i in range(len(llvm_cmds)):
+            one_cmd = llvm_cmds[i]
+            one_src_file = src_files[i]
+            one_map = {}
+
+            if llvm_cmds[i][0:2] == 'cd ':
+                # skip the 'cd ' command
+                continue
+
+            one_map["directory"] = os.path.realpath(kernel_src_dir)
+            one_map["command"] = one_cmd
+            one_map["file"] = one_src_file
+
+            compilation_database.append(one_map)
+
+        with open(output_llvm_compilation_db, 'w') as f:
+            f.write(json.dumps(compilation_database))
+
+        print("[+] LLVM compilation database json file:" + output_llvm_compilation_db)
+
+        return True
+
     print("[+] Running LLVM Commands in multiprocessing mode.")
+
     build_src_dir = os.path.dirname(makeout_file)
     curr_dir = os.getcwd()
     os.chdir(build_src_dir)
     if command_output_dir is not None:
         os.chdir(command_output_dir)
+
     p = Pool(cpu_count())
     return_vals = p.map(_run_program, llvm_cmds)
     os.chdir(curr_dir)
     print("[+] Finished Building LLVM Bitcode files")
+
     for i in range(len(return_vals)):
         if return_vals[i]:
             logger.error("[-] Command Failed:" + llvm_cmds[i] + "\n")
 
-    print("[+] Script containing all LLVM Build Commands:" + output_llvm_sh_file)
     return True
