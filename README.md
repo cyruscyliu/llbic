@@ -37,12 +37,11 @@ Take [mips-linux-3.18.20](./arch/mips/linux-3.18.20.md) as an example.
 ```shell script
 export BUILD=/home/root/build
 
-# a buildable kernel
-export STAGING_DIR=/home/root/build/staging_dir
-cd $BUILD/linux-3.18.20
-make ARCH=mips CROSS_COMPILE=$STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux- V=1 > makeout.txt 2>&1
+# get a buildable kernel (prerequisite for this llbic project using the [repo](https://github.com/cyruscyliu/openwrt-build-docker))
+# 1. build the kernel using the repo
+# 2. get the name of the compiler from the generated 'makeout.txt' in the step 1, e.g. 'arm-openwrt-linux-uclibcgnueabi-gcc'
 
-# patch this kernel
+# patch this kernel source code
 cp /home/root/llbic/arch/mips/linux-3.18.20.sh . && ./linux-3.18.20.sh
 
 cd /home/root/llbic
