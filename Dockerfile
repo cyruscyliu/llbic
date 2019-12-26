@@ -14,4 +14,4 @@ apt install -y python3-pip && python3.7 -m pip install --upgrade pip
 RUN rm /usr/bin/python && ln -s /usr/bin/python3.7 /usr/bin/python && \
 rm /usr/local/bin/pip && ln -s /usr/local/bin/pip3.7 /usr/local/bin/pip
 RUN pip install networkx && pip install matplotlib &&  pip install graphviz
-RUN ln -s /mnt/llbic llbic && ln -s /mnt/llbic/build build
+RUN ln -s /mnt/llbic llbic && ln -s /mnt/build build

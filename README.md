@@ -24,20 +24,31 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 
 ## Quick Start
 
+*Before using llbic, you should have aleady built the kernel source code successfully using gcc.*
+*If you target openwrt firmware, you had better follow the [repo](https://github.com/cyruscyliu/openwrt-build-docker) to build the target kernel source code.*
+
 I recommend you using Docker such that all commands in this project can be ran directly.
 
 ```shell script
 git clone git@github.com:cyruscyliu/llbic.git && cd llbic
 docker build -t llbic:latest .
-docker run -it -v $PWD:/mnt/llbic llbic:latest /bin/bash
+docker run -it \
+        -v ${PATH_OF_LLBIC_REPO}:/mnt/llbic \
+        -v ${PATH_OF_BUILT_KERNEL_SOURCE}:/mnt/build \
+        # see the following comment for this volume config
+        -v ${PATH_OPENWRT_BUILDER_USED_OUTSIDE}:${PATH_OPENWRT_BUILDER_USED_INSIDE} \
+        llbic:latest /bin/bash
 ```
+Comment:
+    - the volume should keep the same as the openwrt-build-docker repo's
+    - see the volume section of the [yaml](https://github.com/cyruscyliu/openwrt-build-docker/blob/master/10.03/docker-compose.yml) as the example
 
 Take [mips-linux-3.18.20](./arch/mips/linux-3.18.20.md) as an example.
 
 ```shell script
 export BUILD=/home/root/build
 
-# get a buildable kernel (prerequisite for this llbic project using the [repo](https://github.com/cyruscyliu/openwrt-build-docker))
+# get a buildable kernel 
 # 1. build the kernel using the repo
 # 2. get the name of the compiler from the generated 'makeout.txt' in the step 1, e.g. 'arm-openwrt-linux-uclibcgnueabi-gcc'
 
