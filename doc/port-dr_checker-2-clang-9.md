@@ -1,6 +1,6 @@
-# port dr_checker to clang-9
+# port dr_checker to clang
 
-I don't bring all the code in `dr_checker` to this repo, but I still tested all the code in `dr_checker` with `clang-9`.
+I don't bring all the code in `dr_checker` to this repo, but I still tested all the code in `dr_checker` with `clang`.
 Besides changes you can see in this repo, I will list some others you might be interested in.
 
 ##### dr_linker

@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y build-essential wget
 RUN apt-get install -y lsb-core software-properties-common
 RUN apt-get install -y vim
 RUN wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && ./llvm.sh 9
+RUN ln -s /usr/bin/clang-9 /usr/bin/clang && ln -s /usr/bin/llvm-link-9 /usr/bin/llvm-link && ln -s /usr/bin/opt-9 /usr/bin/opt
 RUN add-apt-repository ppa:deadsnakes/ppa && apt-get update && apt install -y python3.7 && \
 apt install -y python3-pip && python3.7 -m pip install --upgrade pip
 RUN rm /usr/bin/python && ln -s /usr/bin/python3.7 /usr/bin/python && \
