@@ -14,6 +14,7 @@ sed -i -r "s/r0, r3, r4, r5, r6, r7, r8, r9, ip, , abort=19f/r0, r3, r4, r5, r6,
 sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/mm/proc-feroceon.S
 sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/boot/compressed/head.S
 sed -i -r "s/#alloc/\ \"a\"/" arch/arm/boot/compressed/piggy.S
+sed -i -r "s/#alloc/\ \"a\"/" arch/arm/boot/compressed/piggy.lzma.S
 sed -i -r "/^struct shash_alg/i\#define SHASH_DESC_ON_STACK\(shash, ctx\) \\\\\n\tchar __##shash##_desc\[sizeof\(struct shash_desc\) \+ \\\\\n\t\tcrypto_shash_descsize\(ctx\)\] CRYPTO_MINALIGN_ATTR; \\\\\n\tstruct shash_desc \*shash = \(struct shash_desc \*\)__##shash##_desc\n" include/crypto/hash.h
 sed -i -r "/crc32c\(u32 crc, const void \*address, unsigned int length\)/{n;n;N;N;N;d}" lib/libcrc32c.c
 sed -i -r "/crc32c\(u32 crc, const void \*address, unsigned int length\)/{N;s/$/\n\tSHASH_DESC_ON_STACK\(shash, tfm\);\n\tu32 \*ctx = \(u32 \*\)shash_desc_ctx\(shash\);/}" lib/libcrc32c.c
