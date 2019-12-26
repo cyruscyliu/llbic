@@ -39,9 +39,11 @@ docker run -it \
         -v ${PATH_OPENWRT_BUILDER_USED_OUTSIDE}:${PATH_OPENWRT_BUILDER_USED_INSIDE} \
         llbic:latest /bin/bash
 ```
+
 Comment:
-    - the volume should keep the same as the openwrt-build-docker repo's
-    - see the volume section of the [yaml](https://github.com/cyruscyliu/openwrt-build-docker/blob/master/10.03/docker-compose.yml) as the example
+
+- the volume should keep the same as the openwrt-build-docker repo's
+- see the volume section of the [yaml](https://github.com/cyruscyliu/openwrt-build-docker/blob/master/10.03/docker-compose.yml) as the example
 
 Take [mips-linux-3.18.20](./arch/mips/linux-3.18.20.md) as an example.
 
