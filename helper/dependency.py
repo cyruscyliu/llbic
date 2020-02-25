@@ -91,7 +91,7 @@ def find_dependency(path_to_makeout, graph):
     nodes_to_remove = []
     for command in commands:
         items = command.split()
-        if valid_command(items, '-gcc'):
+        if valid_command(items, '-gcc') or valid_command(items, 'ccache_cc'):
             target, source = parse_gcc_target_and_source(items)
             if target is not None:
                 graph.edge(source, target)
