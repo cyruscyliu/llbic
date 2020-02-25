@@ -84,8 +84,8 @@ class LLVMCompile(Component):
 INVALID_GCC_FLAGS = ['-mno-thumb-interwork', '-fconserve-stack', '-fno-var-tracking-assignments',
                      '-fno-delete-null-pointer-checks', '--param=allow-store-data-races=0',
                      '-Wno-unused-but-set-variable', '-Werror=frame-larger-than=1', '-Werror', '-Wall',
-                     '-fno-jump-tables', '-nostdinc', '-fno-ipa-sra', '-mno-single-pic-base', 
-                     '-mno-sched-prolog', '-mapcs', '-Wa,-march=all', '-fno-tree-ch']
+                     '-fno-jump-tables', '-nostdinc', '-fno-ipa-sra', '-mno-single-pic-base',
+                     '-mno-sched-prolog', '-mapcs', '-Wa,-march=all', '-fno-tree-ch', '-femit-struct-debug-baseonly']
 # necessary flags which should be added in the future
 FUTURE_FLAGS = ['-D__linux__']
 # target optimization to be used for llvm
@@ -261,12 +261,12 @@ def _generate_llvm_bitcode(kernel_src_dir, base_output_folder, makeout_file, gcc
             curr_line = curr_line.strip()
             llvm_mod_str, src_file_str = None, None
 
-            if curr_line.startswith(gcc_prefix):
+            if curr_line.startswith(gcc_prefix) or curr_line.startswith('ccache_cc'):
                 llvm_mod_str, src_file_str = _get_llvm_build_str(kernel_src_dir, curr_line,
                         base_output_folder, target_arch, clang_path,
                         build_output_dir=command_output_dir)
 
-            elif len(curr_line.split()) > 2 and curr_line.split()[1] == gcc_prefix:
+            elif len(curr_line.split()) > 2 and (curr_line.split()[1] == gcc_prefix or curr_line.split()[1] == 'ccache_cc'):
                 llvm_mod_str, src_file_str = _get_llvm_build_str(kernel_src_dir, ' '.join(curr_line.split()[1:]),
                         base_output_folder, target_arch, clang_path,
                         build_output_dir=command_output_dir)
