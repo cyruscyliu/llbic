@@ -19,7 +19,7 @@ the internet, in a blog, in commit comments, etc. The project is then aiming to 
 |build issues collection|arch|linux version|clang version|c-ml-vmlinux.bc|l-vm-vmlinux.bc|
 |:---:|:---:|:---:|:---:|:---:|:---:|
 |[mips-linux-4.4.42](./arch/mips/linux-4.4.42.md)|mips|4.4.42|9|Y|Partial|
-|[mips-linux-3.18.20](./arch/mips/linux-3.18.20.md)|mips|3.18.20|9|Y|Partial|
+|[mips-linux-3.18.20](./arch/mips/linux-3.18.20.md)|mips|3.18.20|6/9|Y|Partial|
 |[arm-linux-3.18.20](./arch/arm/linux-3.18.20.md)|arm|3.18.20|9|Y|Partial|
 |[arm-linux-2.6.32](./arch/arm/linux-2.6.32.md)|arm|2.6.32|9|Y|Partial|
 
@@ -32,19 +32,21 @@ I recommend you using Docker such that all commands in this project can be ran d
 
 ```shell script
 git clone git@github.com:cyruscyliu/llbic.git && cd llbic
-docker build -t llbic:latest .
+docker build -f Dockerfile_llvm6 -t llbic:llvm6 .
+docker build -f Dockerfile_llvm9 -t llbic:llvm9 .
 docker run -it \
         -v ${PATH_OF_LLBIC_REPO}:/mnt/llbic \
         -v ${PATH_OF_BUILT_KERNEL_SOURCE}:/mnt/build \
         # see the following comment for this volume config if you use openwrt-build-docker
         -v ${PATH_OPENWRT_BUILDER_USED_OUTSIDE}:${PATH_OPENWRT_BUILDER_USED_INSIDE} \
-        llbic:latest /bin/bash
+        llbic:XXX /bin/bash
 ```
 
 
 Comment:
 - `-v path/to/openwrt-build-docker/share:/root/firmware`
 - see the volume section of the [yaml](https://github.com/cyruscyliu/openwrt-build-docker/blob/master/10.03/docker-compose.yml) as the example
+- llbic:XXX could be llbic:llvm6 or llbic:llvm9
 
 Take [mips-linux-3.18.20](./arch/mips/linux-3.18.20.md) as an example.
 
