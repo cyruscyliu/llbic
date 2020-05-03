@@ -5,6 +5,7 @@ sed -i -r "s/ldr\\\\cond\\\\\(\)b/ldrb\\\\cond/" arch/arm/lib/copy_to_user.S
 sed -i -r "s/ldr\\\\cond\\\\\(\)b/ldrb\\\\cond/" arch/arm/lib/memcpy.S
 sed -i -r "s/\\\\instr\\\\cond\\\\\(\)bt/\\\\instr\\\\\(\)bt\\\\cond/" arch/arm/include/asm/assembler.h 
 sed -i -r "s/\\\\instr\\\\cond\\\\\(\)t/\\\\instr\\\\\(\)t\\\\cond/" arch/arm/include/asm/assembler.h 
+sed -i -r "s/\\\\instr\\\\cond\\\\\(\)b\\\\\(\)/\\\\instr\\\\\(\)b\\\\cond\\\\\(\)/" arch/arm/include/asm/assembler.h 
 sed -i -r "s/strneb/strbne/" arch/arm/lib/testclearbit.S
 sed -i -r "s/streqb/strbeq/" arch/arm/lib/testsetbit.S
 sed -i -r "s/lenhgt/length/" arch/arm/mm/mmu.c
