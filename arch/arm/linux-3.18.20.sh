@@ -16,3 +16,5 @@ sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/mm/proc-arm926.S
 sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/mm/proc-v6.S
 sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/boot/compressed/head.S
 sed -i -r "s/#alloc/\ \"a\"/" arch/arm/boot/compressed/piggy.xzkern.S
+# dirty hack of this insn as I didn't find any documented solution
+sed -i -r "s/p15, 0, r15, c7, c14, 3/p15, 0, r14, c7, c14, 3/" arch/arm/boot/compressed/head.S
