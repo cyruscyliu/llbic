@@ -13,3 +13,6 @@ sed -i -r "s/sigdne/signed/" arch/arm/mm/alignment.c
 sed -i -r "s/sigdne/signed/" arch/arm/kernel/ptrace.c
 sed -i -r "s/r0, r3, r4, r5, r6, r7, r8, r9, ip, , abort=19f/r0, r3, r4, r5, r6, r7, r8, r9, ip, abort=19f/" arch/arm/lib/copy_template.S
 sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/mm/proc-arm926.S
+sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/mm/proc-v6.S
+sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/boot/compressed/head.S
+sed -i -r "s/#alloc/\ \"a\"/" arch/arm/boot/compressed/piggy.xzkern.S
