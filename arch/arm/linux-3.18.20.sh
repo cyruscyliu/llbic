@@ -6,6 +6,7 @@ sed -i -r "s/ldr\\\\cond\\\\\(\)b/ldrb\\\\cond/" arch/arm/lib/memcpy.S
 sed -i -r "s/\\\\instr\\\\cond\\\\\(\)bt/\\\\instr\\\\\(\)bt\\\\cond/" arch/arm/include/asm/assembler.h 
 sed -i -r "s/\\\\instr\\\\cond\\\\\(\)t/\\\\instr\\\\\(\)t\\\\cond/" arch/arm/include/asm/assembler.h 
 sed -i -r "s/\\\\instr\\\\cond\\\\\(\)b\\\\\(\)/\\\\instr\\\\\(\)b\\\\cond\\\\\(\)/" arch/arm/include/asm/assembler.h 
+sed -i -r "s/ldrht/ldrh/" arch/arm/kernel/entry-armv.S
 sed -i -r "s/strneb/strbne/" arch/arm/lib/testclearbit.S
 sed -i -r "s/streqb/strbeq/" arch/arm/lib/testsetbit.S
 sed -i -r "s/lenhgt/length/" arch/arm/mm/mmu.c
@@ -14,6 +15,7 @@ sed -i -r "s/sigdne/signed/" arch/arm/kernel/ptrace.c
 sed -i -r "s/r0, r3, r4, r5, r6, r7, r8, r9, ip, , abort=19f/r0, r3, r4, r5, r6, r7, r8, r9, ip, abort=19f/" arch/arm/lib/copy_template.S
 sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/mm/proc-arm926.S
 sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/mm/proc-v6.S
+sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/mm/proc-v7.S
 sed -i -r "s/#alloc, #execinstr/\ \"ax\"/" arch/arm/boot/compressed/head.S
 sed -i -r "s/#alloc/\ \"a\"/" arch/arm/boot/compressed/piggy.xzkern.S
 # dirty hack of this insn as I didn't find any documented solution
