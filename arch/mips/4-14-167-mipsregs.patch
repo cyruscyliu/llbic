@@ -1,0 +1,20 @@
+--- mipsregs.h	2020-05-16 17:44:58.185140741 +0800
++++ mipsregs-new.h	2020-05-16 17:44:22.576832991 +0800
+@@ -1391,7 +1391,7 @@
+ 			"dmtc0\t%L0, " #source "\n\t"			\
+ 			".set\tmips0"					\
+ 			: "=&r,r" (__tmp)				\
+-			: "r,0" (val));					\
++			: "r,0" (((unsigned long long)val)));					\
+ 	else								\
+ 		__asm__ __volatile__(					\
+ 			".set\tmips64\n\t"				\
+@@ -1402,7 +1402,7 @@
+ 			"dmtc0\t%L0, " #source ", " #sel "\n\t"		\
+ 			".set\tmips0"					\
+ 			: "=&r,r" (__tmp)				\
+-			: "r,0" (val));					\
++			: "r,0" (((unsigned long long)val)));					\
+ 	local_irq_restore(__flags);					\
+ } while (0)
+ 
