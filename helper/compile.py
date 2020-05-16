@@ -85,7 +85,8 @@ INVALID_GCC_FLAGS = ['-mno-thumb-interwork', '-fconserve-stack', '-fno-var-track
                      '-fno-delete-null-pointer-checks', '--param=allow-store-data-races=0',
                      '-Wno-unused-but-set-variable', '-Werror=frame-larger-than=1', '-Werror', '-Wall',
                      '-fno-jump-tables', '-nostdinc', '-fno-ipa-sra', '-mno-single-pic-base', '-femit-struct-debug-detailed=any',
-                     '-mno-sched-prolog', '-mapcs', '-Wa,-march=all', '-fno-tree-ch', '-femit-struct-debug-baseonly']
+                     '-mno-sched-prolog', '-mapcs', '-Wa,-march=all', '-fno-tree-ch', '-femit-struct-debug-baseonly', 
+                     '-fno-code-hoisting']
 # necessary flags which should be added in the future
 FUTURE_FLAGS = ['-D__linux__']
 # target optimization to be used for llvm
