@@ -95,10 +95,6 @@ python wrapper.py dr_checker link \
 Note:
 + For arm-linux.2.6.32, please run `sed -i -r "s/defined\(@val\)/@val/" kernel/timeconst.pl` first.
 
-## Others
-+ The initial idea was inspired by [dr_checker](https://github.com/ucsb-seclab/dr_checker).
-+ [port dr_checker to clang9](./doc/port-dr_checker-2-clang-9.md)
-
 ## Background
 
 |algorithms|description|
@@ -141,3 +137,7 @@ like native object files and allows mixing and matching among them. The linker u
 a shared object, to handle LLVM bitcode files. **If you need global optimization and want a vmlinux
 executable, try this.** FYI: [ThinLTO](http://clang.llvm.org/docs/ThinLTO.html): Scalable and
 Incremental LTO.
+
+## Others
++ The initial idea was inspired by [dr_checker](https://github.com/ucsb-seclab/dr_checker).
++ [port dr_checker to clang9](./doc/port-dr_checker-2-clang-9.md)
