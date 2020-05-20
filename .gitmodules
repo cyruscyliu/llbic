@@ -1,3 +1,0 @@
-[submodule "wllvm"]
-	path = wllvm
-	url = git@github.com:cyruscyliu/whole-program-llvm.git
