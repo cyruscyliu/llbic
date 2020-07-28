@@ -1,21 +1,12 @@
 # LLVM Linux Build Issues Collection
 
 I guess most of you have troubles compiling old Linux kernels with clang,
-while the solutions to issues are all over the internet, in a blog,
+while the solutions are all over the internet, in blogs,
 in commit comments, etc. The project is then aiming to put these solutions
 together as a `build issues collection` and a learning material of clang usage.
 BTW, `llbic` is short of LLVM Linux Build Issues Collection.
 
-In general, this project will compile old Linux kernels in llvm bitcode.
-
-After obtaining llvm bitcode files:
-+ write your passes on llvm bitcode files, `llc` the bitcode files to native objects,
-`ld` them all to en ELF executable
-+ obtaining llvm bitcode files with `-flto`, write your own LTO plugin, `clang -flto`
-the bitcode files to en ELF executable
-+ `llvm-link` selected llvm bitcode files, and write your own passes on the bigger
-llvm bitcode file
-
+In general, this project will compile and link old Linux kernels in llvm bitcode.
 
 Note:
 + Assembly files(.S) cannot be compiled to bitcode files.
