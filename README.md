@@ -34,6 +34,14 @@ Note:
 + object.bc: Compile each c file to llvm bitcode file.
 + vmlinux.bc: Link necessary object.bc files together to a vmlinux.bc.
 
+## Overview
+
+The process of LLVM Linux building.
+
++------+   gcc    +------+   llbic   +-------+
++source+  ----->  +binary+  -------> +bitcode+
++------+          +------+           +-------+
+
 ## Quick Start
 
 *Before using llbic, you should have already built the kernel source code successfully using gcc.*
