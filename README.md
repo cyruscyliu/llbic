@@ -38,9 +38,9 @@ Note:
 
 The process of LLVM Linux building.
 
-+------+   gcc    +------+   llbic   +-------+
-+source+  ----->  +binary+  -------> +bitcode+
-+------+          +------+           +-------+
++------+   gcc    +------+   llbic   +-------+  
++source+  ----->  +binary+  -------> +bitcode+  
++------+          +------+           +-------+  
 
 ## Quick Start
 
