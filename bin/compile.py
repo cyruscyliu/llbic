@@ -27,7 +27,7 @@ import os
 import json
 import logging
 
-from helper.base import Component
+from bin.base import Component
 from multiprocessing import Pool, cpu_count
 
 logger = logging.getLogger()

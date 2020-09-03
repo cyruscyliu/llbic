@@ -30,8 +30,8 @@ import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
 
-from helper.base import Component
-from helper.dependency import find_dependency
+from bin.base import Component
+from bin.dependency import find_dependency
 
 
 class GraphWrapper(object):
@@ -55,9 +55,7 @@ class GraphWrapper(object):
 
 
 class LLVMLink(Component):
-    '''
-        Component that links the driver bitcode file with all the dependent bitcode files.
-    '''
+    """Component that links the driver bitcode file with all the dependent bitcode files."""
 
     def __init__(self, **kwargs):
         self.curr_makeout = kwargs.pop('makeout', None)
