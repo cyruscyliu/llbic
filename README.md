@@ -6,20 +6,43 @@ in commit comments, etc. The project is then aiming to put these solutions
 together as a `build issues collection` and a learning material of clang usage.
 BTW, `llbic` is short of LLVM Linux Build Issues Collection.
 
-In general, this project will compile old Linux kernels in llvm bitcode.
-
-After obtaining llvm bitcode files:
-+ write your passes on llvm bitcode files, `llc` the bitcode files to native objects,
-`ld` them all to en ELF executable
-+ obtaining llvm bitcode files with `-flto`, write your own LTO plugin, `clang -flto`
-the bitcode files to en ELF executable
-+ `llvm-link` selected llvm bitcode files, and write your own passes on the bigger
-llvm bitcode file
+In general, this project will compile and link old Linux kernels in llvm bitcode.
 
 
-Note:
-+ Assembly files(.S) cannot be compiled to bitcode files.
-+ `llvm-link` cannot generate executables but a bigger llvm bitcode file.
+```
++--+   gcc    +-----------+   llbic   +---+  
++.c+  ----->  +makeout.txt+  -------> +.bc+  
++--+          +-----------+           +---+  
+```
+
+## Backgroud
+
+```
+     --emit-llvm   +---+  llc   +--+  ld   +---+
+(1) -------------> +.bc+ -----> +.o+ ----> +ELF+ (generic)
+                   +---+        +--+       +---+
+
+     -flto -c  +---+  -flto   +---+
+(2) ---------> +.bc+ -------> +ELF+ (lto)
+               +---+          +---+
+
+     --emit-llvm   +---+  llvm-link   +---+
+(3) -------------> +.bc+ -----------> +.bc+  (llbic)
+                   +---+              +---+
+```
+
+# Usage
+
+```
+sudo apt-get install -y clang-3.8 clang-6.0 clang-9.0
+sudo ln -s /usr/bin/llvm-config-6.0 /usr/bin/llvm-config
+
+sudo apt-get install -y python3 python3-pip && python3 -m pip install --upgrade pip
+sudo -H pip3 install networkx matplotlib graphviz
+sudo ln -s /usr/bin/python3 /usr/bin/python
+
+git clone https://github.com/cyruscyliu/llbic.git
+```
 
 ## Support List
 |build issues collection|arch|linux version|clang version|object.bc|vmlinux.bc|
@@ -30,19 +53,6 @@ Note:
 |[arm-linux-3.18.20](./arch/arm/linux-3.18.20.md)|arm|3.18.20|9|Y|Y|
 |[arm-linux-2.6.32](./arch/arm/linux-2.6.32.md)|arm|2.6.32|9|Y|Y|
 
-Note:
-+ object.bc: Compile each c file to llvm bitcode file.
-+ vmlinux.bc: Link necessary object.bc files together to a vmlinux.bc.
-
-## Overview
-
-The process of LLVM Linux building.
-
-```
-+------+   gcc    +------+   llbic   +-------+  
-+source+  ----->  +binary+  -------> +bitcode+  
-+------+          +------+           +-------+  
-```
 
 ## Quick Start
 
