@@ -1,5 +1,5 @@
 ARCH			?=x86_64
-CC 				?=ccache
+CC 				?=gcc
 
 LLVM_CONFIG		?=llvm-config
 LLVM_CLANG		?=$(shell llvm-config --bindir)/clang
@@ -24,3 +24,6 @@ endif
 
 link:
 	./llbic.py -ac link -a $(ARCH) -cop $(CC) -c $(LLVM_CLANG) -s $(SOURCE) -o $(BUILD) -mo $(MAKEOUT)
+
+dependency:
+	./bin/dependency.py $(MAKEOUT)

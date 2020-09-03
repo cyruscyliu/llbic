@@ -1,3 +1,4 @@
+#!/usr/bin/python
 from graphviz import Digraph
 
 import os

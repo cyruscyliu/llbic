@@ -1,10 +1,3 @@
-# overview 
-
-+ specific `arm` `2.6.32`
-+ buildable kernel `linux-2.6.32 patched by OpenWrt`
-+ toolchain `arm-openwrt-linux-`
-+ patch `linux-2.6.32.sh`
-
 ### omit the defined()?
 
 ```text

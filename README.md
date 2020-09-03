@@ -25,8 +25,26 @@ sudo apt-get install -y python3 python3-pip && python3 -m pip install --upgrade 
 sudo -H pip3 install networkx matplotlib graphviz
 sudo ln -s /usr/bin/python3 /usr/bin/python
 
-git clone https://github.com/cyruscyliu/llbic.git
+git clone https://github.com/cyruscyliu/llbic.git ~/llbic
+
+# compile your own kernel first to generate `makeout.txt`
+export SOURCE=~/linux-3.18.20
+cd $SOURCE && make defconfig && make V=1 >makeout.txt 2>&1
+
+# patch your kernel 
+cp patches/3.18.20/linux-3.18.20.sh $SOURCE 
+cd $SOURCE && ./linux-3.18.20.sh
+
+# run llbic
+cd ~/llbic && make compile && make link
 ```
+
+## Trouble shooting
+
++ We now support x86_64, arm and mips. Please export ARCH if necessary.
++ We highly reply on the `makeout.txt`. Please check the compiler name in it.
+It can be `gcc`, `ccache`, `arm-openwrt-linux-uclibcgnueabi-gcc`. Please export CC if necesary.
++ For linux-2.6.32, please run `sed -i -r "s/defined\(@val\)/@val/" kernel/timeconst.pl` first.
 
 ## Support List
 |build issues collection|arch|linux version|clang version|object.bc|vmlinux.bc|
@@ -39,11 +57,6 @@ git clone https://github.com/cyruscyliu/llbic.git
 
 
 ## Quick Start
-
-*Before using llbic, you should have already built the kernel source code successfully using gcc.*
-*If you target openwrt firmware, you had better follow the [openwrt-build-docker](https://github.com/cyruscyliu/openwrt-build-docker) to build the target kernel source code.*
-
-I recommend you using Docker such that all commands in this project can be ran directly.
 
 ```shell script
 git clone git@github.com:cyruscyliu/llbic.git && cd llbic
@@ -65,39 +78,12 @@ Comment:
 Take [mips-linux-3.18.20](./arch/mips/linux-3.18.20.md) as an example.
 
 ```shell script
-export BUILD=/home/root/build
-
-# get a buildable kernel
-# 1. build the kerne
-# 2. get the name of the compiler from the generated 'makeout.txt' in the step 1, e.g. 'arm-openwrt-linux-uclibcgnueabi-gcc'
-
-# patch this kernel source code
 cp /home/root/llbic/arch/mips/linux-3.18.20.sh . && ./linux-3.18.20.sh
 
 cd /home/root/llbic
 # dependency graph (if needed)
 python helper/dependency.py $BUILD/linux-3.18.20/makeout.txt
-
-# object.bc
-cd /home/root/llbic
-# half compile (generate command only)
-python wrapper.py dr_checker compile command-only \
-    $BUILD/linux-3.18.20/makeout.txt mips /usr/bin/clang \
-    $STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux-gcc \
-    $BUILD/linux-3.18.20/ $BUILD/linux-3.18.20-llvm-bitcode
-# full compile
-python wrapper.py dr_checker compile \
-    $BUILD/linux-3.18.20/makeout.txt mips /usr/bin/clang \
-    $STAGING_DIR/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mips-openwrt-linux-gcc \
-    $BUILD/linux-3.18.20/ $BUILD/linux-3.18.20-llvm-bitcode
-# vmlinux.bc
-python wrapper.py dr_checker link \
-    $BUILD/linux-3.18.20/makeout.txt \
-    /usr/bin/llvm-link $BUILD/linux-3.18.20-llvm-bitcode
 ```
-
-Note:
-+ For arm-linux.2.6.32, please run `sed -i -r "s/defined\(@val\)/@val/" kernel/timeconst.pl` first.
 
 ## Others
 + The initial idea was inspired by [dr_checker](https://github.com/ucsb-seclab/dr_checker).
