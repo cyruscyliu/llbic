@@ -4,7 +4,7 @@ import sys
 import argparse
 import subprocess
 
-from bin.utils import get_version, get_compiler_name
+from bin.utils import get_version, get_compiler_name, patch
 from bin.compile import LLVMCompile
 from bin.link import LLVMLink
 
@@ -64,7 +64,6 @@ if __name__ == '__main__':
         context['clangbin'] = llvm_link
         link(**context)
     elif args.action == 'patch':
-        kernel_ver = get_version(args.source),
-        pass
+        patch(arg.source)
     else:
         parser.print_help()

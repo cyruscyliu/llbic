@@ -37,3 +37,4 @@ sed -i -r "/\*\(u32 \*\)sdesc\.ctx = le32/i\\\t\tu32 \*ctx = \(u32 \*\)\(\(unsig
 sed -i -r "s/\*\(u32 \*\)sdesc\.ctx = le32/\*ctx = le32/" crypto/testmgr.c
 sed -i -r "s/err = crypto_shash_final\(\&sdesc\.shash/err = crypto_shash_final\(shash/" crypto/testmgr.c
 sed -i -r "s/p15, 0, r15, c7, c14, 3/p15, 0, APSR_nzcv, c7, c14, 3/" arch/arm/boot/compressed/head.S
+sed -i -r "s/defined\(@val\)/@val/" kernel/timeconst.pl

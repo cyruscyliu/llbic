@@ -1,1 +1,1 @@
-patch -b arch/mips/include/asm/mipsregs.h /home/root/llbic/arch/mips/4-14-167-mipsregs.patch 
+patch -b arch/mips/include/asm/mipsregs.h 4-14-167-mipsregs.patch 

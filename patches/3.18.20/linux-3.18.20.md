@@ -1,13 +1,13 @@
 ### invalid instruction
 
 ```text
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/kernel/entry-common.S:475:2: error: invalid instruction
+/root/linux-3.18.20/arch/arm/kernel/entry-common.S:475:2: error: invalid instruction
  ldmccia r1, {r0 - r6} @ have to reload r0 - r6
  ^
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/kernel/entry-common.S:476:2: error: invalid instruction
+/root/linux-3.18.20/arch/arm/kernel/entry-common.S:476:2: error: invalid instruction
  stmccia sp, {r4, r5} @ and update the stack args
  ^
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/kernel/entry-common.S:523:3: error: invalid instruction
+/root/linux-3.18.20/arch/arm/kernel/entry-common.S:523:3: error: invalid instruction
   stmloia sp, {r5, r6} @ shuffle args
   ^
 ```
@@ -100,7 +100,7 @@ index e056c9a9aa9d..fa7c6e5c17e7 100644
 ### invalid instruction
 
 ```text 
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/kernel/entry-common.S:519:3: error: invalid instruction
+/root/linux-3.18.20/arch/arm/kernel/entry-common.S:519:3: error: invalid instruction
   stmloia sp, {r5, r6} @ shuffle args
   ^
 ```
@@ -135,7 +135,7 @@ sed -i -r "s/sigdne/signed/" arch/arm/kernel/ptrace.c
 <instantiation>:40:47: error: too many positional arguments
   str8w r0, r3, r4, r5, r6, r7, r8, r9, ip, , abort=19f
                                               ^
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/lib/copy_template.S:247:5: note: while in macro instantiation
+/root/linux-3.18.20/arch/arm/lib/copy_template.S:247:5: note: while in macro instantiation
 18: forward_copy_shift pull=24 push=8
     ^
 ```
@@ -167,7 +167,7 @@ strusr r3, r0, 4, abort=21f
 <instantiation>:54:3: note: while in macro instantiation
   str1w r0, r3, abort=21f
   ^
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/lib/copy_template.S:247:5: note: while in macro instantiation
+/root/linux-3.18.20/arch/arm/lib/copy_template.S:247:5: note: while in macro instantiation
 18: forward_copy_shift pull=24 push=8
     ^
 ```
@@ -183,7 +183,7 @@ strusr r3, r0, 4, abort=21f
 <instantiation>:1:1: error: invalid instruction, did you mean: ldrb?
 ldralb lr, [r1], #1
 ^
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/lib/copy_template.S:162:3: note: while in macro instantiation
+/root/linux-3.18.20/arch/arm/lib/copy_template.S:162:3: note: while in macro instantiation
   ldr1b r1, lr, abort=21f
   ^
 ```
@@ -196,7 +196,7 @@ ldralb lr, [r1], #1
 ### instruction 'subge' can not set flags 
 
 ```text
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/boot/compressed/lib1funcs.S:185:2: error: instruction 'subge' can not set flags, but 's' suffix specified
+/root/linux-3.18.20/arch/arm/boot/compressed/lib1funcs.S:185:2: error: instruction 'subge' can not set flags, but 's' suffix specified
  subges r2, r2, #4
  ^
 /tmp/lib1funcs-8af47e.s:474:2: note: while in macro instantiation
@@ -211,7 +211,7 @@ ldralb lr, [r1], #1
 ###  operand must be a register in range [r0, r14] or apsr_nzcv
 
 ```text
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/boot/compressed/head.S:1150:16: error: operand must be a register in range [r0, r14] or apsr_nzcv
+/root/linux-3.18.20/arch/arm/boot/compressed/head.S:1150:16: error: operand must be a register in range [r0, r14] or apsr_nzcv
 1: mrc p15, 0, r15, c7, c14, 3 @ test,clean,invalidate D cache
                ^
 ```
@@ -224,13 +224,13 @@ ldralb lr, [r1], #1
 ### parameter references not allowed in naked functions
 
 ```text
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/mm/copypage-v4wb.c:47:9: error: parameter references not allowed in naked functions
+/root/linux-3.18.20/arch/arm/mm/copypage-v4wb.c:47:9: error: parameter references not allowed in naked functions
         : "r" (kto), "r" (kfrom), "I" (PAGE_SIZE / 64));
                ^
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/mm/copypage-v4wb.c:25:13: note: attribute is here
+/root/linux-3.18.20/arch/arm/mm/copypage-v4wb.c:25:13: note: attribute is here
 static void __naked
             ^
-/home/liuqiang/Desktop/linux-3.18.20/include/linux/compiler-gcc.h:80:35: note: expanded from macro '__naked'
+/root/linux-3.18.20/include/linux/compiler-gcc.h:80:35: note: expanded from macro '__naked'
 #define __naked                         __attribute__((naked)) noinline __noclone notrace
                                                        ^
 1 error generated.
@@ -243,7 +243,7 @@ static void __naked
 ### expected string in directive
 
 ```text
-/home/liuqiang/Desktop/linux-3.18.20/arch/arm/mm/proc-arm926.S:477:30: error: expected string in directive
+/root/linux-3.18.20/arch/arm/mm/proc-arm926.S:477:30: error: expected string in directive
  .section ".proc.info.init", #alloc, #execinstr
 ```
 

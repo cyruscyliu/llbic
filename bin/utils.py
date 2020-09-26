@@ -17,3 +17,18 @@ def get_compiler_name(source):
         cmd = f.realine()
     compiler_name = cmd.split(':=')[1].split()[0]
     return compiler_name
+
+
+def patch(source):
+    kernel_ver = get_version(source)
+    patch_dir = os.path.join('patches/{}'.format(kernel_ver))
+    patch_sh = os.path.join(patch_dir, 'linux-{}'.format(kernel_ver))
+
+    for patch in os.listdir(patch_dir):
+        if patch.endswith('diff'):
+            os.system('cp {} {}'.format(patch, source))
+
+    cwd = os.getcwd()
+    os.chdir(source)
+    os.system(patch_sh)
+    os.chdir(cwd)
