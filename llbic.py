@@ -76,7 +76,7 @@ if __name__ == '__main__':
         context['arch'] = check_arch(args)
         compile_(**context)
     elif args.action == 'link':
-        llvm_link = os.path.join(llvm_bindir, 'llvm_link')
+        llvm_link = os.path.join(llvm_bindir, 'llvm-link')
         context['clangbin'] = llvm_link
         context['makeout'] = check_makeout(args)
         link(**context)
