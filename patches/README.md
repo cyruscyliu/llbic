@@ -16,12 +16,12 @@ touch linux-3.18.20.sh
 
 ```
 echo sed ... >> linux-3.18.20.sh
-echo patch kernel/fork.c xxx.patch >> linux-3.18.20.sh
+echo patch kernel/fork.c xxx.diff >> linux-3.18.20.sh
 echo issue_and_soluation >> linux-3.18.20.md # optional
 ```
 
 P.S.
-+ xxx.patch is under the same directory with linux-3.18.20.sh and
-we will copy the xxx.patch to the Linux kernel source directory.
-+ Use relative patch for files in the Linux kernel, because we will
++ Use relative path for diff patches that are under the same directory with linux-3.18.20.sh
+because we will copy the patches to the Linux kernel source directory.
++ Use relative path for files in the Linux kernel because we will
 chdir to the Linux kernel source directory.

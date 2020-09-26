@@ -42,10 +42,6 @@ cd $SOURCE && ./linux-3.18.20.sh
 cd ~/llbic && make compile && make link && make dependency
 ```
 
-## Trouble shooting
-
-+ For linux-2.6.32, please run `sed -i -r "s/defined\(@val\)/@val/" kernel/timeconst.pl` first.
-
 ## Support List
 + linux-2.6.32 [patch](./patches/2.6.32/linux-2.6.32.sh) [documention](./patches/2.6.32/linux-2.6.32.md)
 + linux-3.18.20 [patch](./patches/3.18.20/linux-3.18.20.sh) [documention](./patches/3.18.20/linux-3.18.20.md)
