@@ -25,10 +25,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
 """
 import os
 import networkx as nx
-import matplotlib
-
-matplotlib.use('agg')
-import matplotlib.pyplot as plt
 
 from bin.base import Component
 from bin.dependency import find_dependency
