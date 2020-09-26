@@ -274,6 +274,9 @@ def _generate_llvm_bitcode(kernel_src_dir, base_output_folder, makeout_file, gcc
             else:
                 continue
 
+            if src_file_str == '-':
+                continue
+
             fp_out.write(llvm_mod_str + '\n')
             llvm_cmds.append(llvm_mod_str)
             src_files.append(src_file_str)
