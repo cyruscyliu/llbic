@@ -27,7 +27,7 @@ import os
 import json
 import logging
 
-from helper.base import Component
+from bin.base import Component
 from multiprocessing import Pool, cpu_count
 
 logger = logging.getLogger()
@@ -272,6 +272,9 @@ def _generate_llvm_bitcode(kernel_src_dir, base_output_folder, makeout_file, gcc
                         base_output_folder, target_arch, clang_path,
                         build_output_dir=command_output_dir)
             else:
+                continue
+
+            if src_file_str == '-':
                 continue
 
             fp_out.write(llvm_mod_str + '\n')

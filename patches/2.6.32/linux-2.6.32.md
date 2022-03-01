@@ -1,15 +1,8 @@
-# overview 
-
-+ specific `arm` `2.6.32`
-+ buildable kernel `linux-2.6.32 patched by OpenWrt`
-+ toolchain `arm-openwrt-linux-`
-+ patch `linux-2.6.32.sh`
-
 ### omit the defined()?
 
 ```text
 Can't use 'defined(@array)' (Maybe you should just omit the defined()?) at kernel/timeconst.pl line 373.
-/home/liuqiang/Desktop/linux-2.6.32/kernel/Makefile:129: recipe for target 'kernel/timeconst.h' failed
+/root/linux-2.6.32/kernel/Makefile:129: recipe for target 'kernel/timeconst.h' failed
 
 change "if (!defined(@array)) {" to "if (!@array) {"
 ```
@@ -24,15 +17,15 @@ sed -i -r "s/defined\(@val\)/@val/" kernel/timeconst.pl
 ### invalid instruction
 
 ```text
-/home/liuqiang/Desktop/linux-2.6.32/arch/arm/kernel/entry-armv.S:946:2: error: instruction 'rsbcs' can not set flags, but 's' suffix specified
+/root/linux-2.6.32/arch/arm/kernel/entry-armv.S:946:2: error: instruction 'rsbcs' can not set flags, but 's' suffix specified
  rsbcss r8, r8, #(2b - 1b)
  ^
-/home/liuqiang/Desktop/linux-2.6.32/arch/arm/kernel/entry-common.S:307:2: error: invalid instruction
+/root/linux-2.6.32/arch/arm/kernel/entry-common.S:307:2: error: invalid instruction
  ldmccia r1, {r0 - r3} @ have to reload r0 - r3
  
 
 ^
-/home/liuqiang/Desktop/linux-2.6.32/arch/arm/kernel/entry-common.S:353:3: error: invalid instruction
+/root/linux-2.6.32/arch/arm/kernel/entry-common.S:353:3: error: invalid instruction
   stmloia sp, {r5, r6} @ shuffle args
   ^
 <instantiation>:5:2: error: invalid instruction, did you mean: str, strb, strd, strh, strt, trap?
@@ -50,7 +43,7 @@ strusr r3, r0, 4, abort=20f
 <instantiation>:1:1: note: while in macro instantiation
 str1w r0, r3, 20f
 ^
-/home/liuqiang/Desktop/linux-2.6.32/arch/arm/lib/copy_template.S:102:3: note: while in macro instantiation
+/root/linux-2.6.32/arch/arm/lib/copy_template.S:102:3: note: while in macro instantiation
   str8w r0, r3, r4, r5, r6, r7, r8, ip, lr, abort=20f
   ^
 ```
@@ -78,7 +71,7 @@ sed -i -r "s/sigdne/signed/" arch/arm/kernel/ptrace.c
 <instantiation>:40:47: error: too many positional arguments
   str8w r0, r3, r4, r5, r6, r7, r8, r9, ip, , abort=19f
                                               ^
-/home/liuqiang/Desktop/linux-2.6.32/arch/arm/lib/copy_template.S:247:5: note: while in macro instantiation
+/root/linux-2.6.32/arch/arm/lib/copy_template.S:247:5: note: while in macro instantiation
 18: forward_copy_shift lsr=24 lsl=8
     ^
 ```
@@ -95,13 +88,13 @@ sed -i -r "s/r0, r3, r4, r5, r6, r7, r8, r9, ip, , abort=19f/r0, r3, r4, r5, r6,
 ### expected string in directive
 
 ```text
-/home/liuqiang/Desktop/linux-2.6.32/arch/arm/mm/proc-feroceon.S:546:30: error: expected string in directive
+/root/linux-2.6.32/arch/arm/mm/proc-feroceon.S:546:30: error: expected string in directive
  .section ".proc.info.init", #alloc, #execinstr
                              ^
-/home/liuqiang/Desktop/linux-2.6.32/arch/arm/boot/compressed/head.S:98:22: error: expected string in directive
+/root/linux-2.6.32/arch/arm/boot/compressed/head.S:98:22: error: expected string in directive
   .section ".start", #alloc, #execinstr
                      ^
-/home/liuqiang/Desktop/linux-2.6.32/arch/arm/boot/compressed/piggy.S:1:22: error: expected string in directive
+/root/linux-2.6.32/arch/arm/boot/compressed/piggy.S:1:22: error: expected string in directive
  .section .piggydata,#alloc
                      ^
 ```
@@ -120,15 +113,15 @@ sed -i -r "s/#alloc/\ \"a\"/" arch/arm/boot/compressed/piggy.S
 ### variable length array 
 
 ```text
-/home/liuqiang/Desktop/linux-2.6.32/crypto/testmgr.c:1433:9: error: fields must have a constant size: 'variable length array in structure' extension will never be supported
+/root/linux-2.6.32/crypto/testmgr.c:1433:9: error: fields must have a constant size: 'variable length array in structure' extension will never be supported
                         char ctx[crypto_shash_descsize(tfm)];
                              ^
 1 error generated.
-/home/liuqiang/Desktop/linux-2.6.32/crypto/hmac.c:58:8: error: fields must have a constant size: 'variable length array in structure' extension will never be supported
+/root/linux-2.6.32/crypto/hmac.c:58:8: error: fields must have a constant size: 'variable length array in structure' extension will never be supported
                 char ctx[crypto_shash_descsize(hash)];
                      ^
 1 error generated.
-/home/liuqiang/Desktop/linux-2.6.32/lib/libcrc32c.c:46:8: error: fields must have a constant size: 'variable length array in structure' extension will never be supported
+/root/linux-2.6.32/lib/libcrc32c.c:46:8: error: fields must have a constant size: 'variable length array in structure' extension will never be supported
                 char ctx[crypto_shash_descsize(tfm)];
                      ^
 1 error generated.
@@ -171,7 +164,7 @@ sed -i -r "s/err = crypto_shash_final\(\&sdesc\.shash/err = crypto_shash_final\(
 ### operand must be a register in range [r0, r14] or apsr_nzcv
 
 ```text 
-/home/liuqiang/Desktop/linux-2.6.32/arch/arm/boot/compressed/head.S:946:16: error: operand must be a register in range [r0, r14] or apsr_nzcv
+/root/linux-2.6.32/arch/arm/boot/compressed/head.S:946:16: error: operand must be a register in range [r0, r14] or apsr_nzcv
 1: mrc p15, 0, r15, c7, c14, 3 @ test,clean,invalidate D cache
                ^
 ```
