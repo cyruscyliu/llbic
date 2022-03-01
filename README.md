@@ -10,9 +10,9 @@ In general, this project will compile and link old Linux kernels in llvm bitcode
 
 
 ```
-+--+   gcc    +-----------+   llbic   +---+  
-+.c+  ----->  +makeout.txt+  -------> +.bc+  
-+--+          +-----------+           +---+  
++--+   gcc    +-----------+   llbic   +---+
++.c+  ----->  +makeout.txt+  -------> +.bc+
++--+          +-----------+           +---+
 ```
 
 # Usage
@@ -34,8 +34,8 @@ sudo docker-compose run llbic /bin/bash
 ## Patch, Compile, and Link
 
 ```
-# patch your kernel 
-cp patches/3.18.20/linux-3.18.20.sh $SOURCE 
+# patch your kernel
+cp patches/3.18.20/linux-3.18.20.sh $SOURCE
 cd $SOURCE && ./linux-3.18.20.sh
 
 # run llbic
@@ -52,3 +52,7 @@ cd ~/llbic && make compile && make link && make dependency
 + The initial idea was inspired by [dr_checker](https://github.com/ucsb-seclab/dr_checker).
 + [port dr_checker to clang9](./doc/port-dr_checker-2-clang-9.md)
 + Check the [backgroud](./doc/backgroud.md) for WLLVM and LTO.
+
+## Contact
+
+If you have any problems, please fire issues!
