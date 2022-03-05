@@ -1,13 +1,10 @@
 version: '2'
 services:
   llbic:
-    container_name: llbic 
+    container_name: llbic
     image: llbic:latest
     stdin_open: true
     tty: true
     working_dir: /root
     volumes:
       - .:/root/llbic
-    extends:
-      file: build-docker.yml
-      service: build-docker

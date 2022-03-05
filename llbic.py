@@ -13,10 +13,10 @@ def check_makeout(args):
     if args.makeout is None:
         print('[+] makeout.txt is by default under the Linux kernel source directory.')
         makeout = os.path.join(args.source, 'makeout.txt')
-    if not os.path.exists(makeout):
+    if not os.path.exists(args.makeout):
         print('[-] makeout.txt does not exist.')
         exit(-1)
-    return makeout
+    return args.makeout
 
 
 def check_arch(args):
@@ -47,9 +47,9 @@ def link(**kwargs):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='LLVM Linux Build Issues Collection')
     parser.add_argument('action', help='Patch, compile or link.', choices=['patch', 'compile', 'link'])
-    parser.add_argument('-a', '--arch', help='Architecture.', choices=['arm', 'mips'])
+    parser.add_argument('-a', '--arch', help='Architecture.', choices=['arm', 'mips'], required=True)
     parser.add_argument('-s', '--source', help='Path to Linux kernel source code.', required=True)
-    parser.add_argument('-mo', '--makeout', help='Path to makeout.txt.') 
+    parser.add_argument('-mo', '--makeout', help='Path to makeout.txt.')
     parser.add_argument('-lc', '--llvm_config', help='Path to llvm-config.', default='llvm-config')
     parser.add_argument('-o', '--output', help='Path to Linux kernel llvm bitcode.')
     parser.add_argument('-co', '--command_only', help='Command only mode.', action='store_true', default=False)

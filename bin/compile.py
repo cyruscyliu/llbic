@@ -45,7 +45,7 @@ class LLVMCompile(Component):
         self.gcc_name = kwargs.pop('compiler_name', None)
         self.arch = kwargs.pop('arch', None)
         self.separate_out = kwargs.pop('out', None)
-        self.kernel_src_dir = kwargs.pop('kernel_src_dir', '')
+        self.kernel_src_dir = os.path.realpath(kwargs.pop('kernel_src_dir', ''))
         self.command_only = kwargs.pop('command_only', False)
 
     def setup(self):
@@ -85,7 +85,7 @@ INVALID_GCC_FLAGS = ['-mno-thumb-interwork', '-fconserve-stack', '-fno-var-track
                      '-fno-delete-null-pointer-checks', '--param=allow-store-data-races=0',
                      '-Wno-unused-but-set-variable', '-Werror=frame-larger-than=1', '-Werror', '-Wall',
                      '-fno-jump-tables', '-nostdinc', '-fno-ipa-sra', '-mno-single-pic-base', '-femit-struct-debug-detailed=any',
-                     '-mno-sched-prolog', '-mapcs', '-Wa,-march=all', '-fno-tree-ch', '-femit-struct-debug-baseonly', 
+                     '-mno-sched-prolog', '-mapcs', '-Wa,-march=all', '-fno-tree-ch', '-femit-struct-debug-baseonly',
                      '-fno-code-hoisting']
 # necessary flags which should be added in the future
 FUTURE_FLAGS = ['-D__linux__']
@@ -288,7 +288,7 @@ def _generate_llvm_bitcode(kernel_src_dir, base_output_folder, makeout_file, gcc
 
         print("[+] Running LLVM Command-only mode.")
 
-        # We've already get the llvm command shell script file, 
+        # We've already get the llvm command shell script file,
         # now we further generate a json format compilation command database
         compilation_database = []
         for i in range(len(llvm_cmds)):

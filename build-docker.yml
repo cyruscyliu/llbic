@@ -1,5 +1,0 @@
-version: '2'
-services:
-  build-docker:
-    volumes:
-      - /mnt/iscsi/openwrt-build-docker/share:/root/firmware

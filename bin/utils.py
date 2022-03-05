@@ -30,7 +30,7 @@ def patch(source, patches=None, backup=True):
     patch_sh = 'linux-{}.sh'.format(kernel_ver)
 
     for patch in os.listdir(patch_dir):
-        if patch.endswith('diff'):
+        if patch.endswith('diff') or patch.endswith('patch'):
             os.system('cp patches/{}/{} {}'.format(kernel_ver, patch, source))
     os.system('cp patches/{}/{} {}'.format(kernel_ver, patch_sh, source))
 
