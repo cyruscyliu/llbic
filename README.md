@@ -67,6 +67,10 @@ we now support ARM and MIPS Linux 2.6.32
 [patch](./patches/4.14.167/linux-4.14.167.sh). A next plan is on demand if there
 is any requirement from both academia and industry.
 
+## Authors
+
+[Qiang Liu](https://github.com/cyruscyliu), and [Cen Zhang](https://github.com/occia)
+
 ## Contact
 
 If you have any problems, please fire issues!
