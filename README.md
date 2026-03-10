@@ -108,7 +108,7 @@ Use `LLBIC_REBUILD=1` to force rebuilding the image.
 extracted source tree. This avoids conflicts when rebuilding the same kernel
 with a different `--clang` version.
 
-Artifacts are written under `sources/out/linux-<version>/` by default (override
+Artifacts are written under `out/linux-<version>/` by default (override
 with `--output`):
 
 - `llbic.log`: end-to-end build log

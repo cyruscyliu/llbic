@@ -199,9 +199,12 @@ _normalize_kernel_name() {
 }
 
 _default_output_dir() {
-  # Default outputs under the sources workspace so they are always persisted
-  # (even when /out is not mounted) and grouped next to extracted kernels.
-  echo "${SOURCES_DIR}/out"
+  # Prefer the conventional /out mount inside containers; otherwise use repo-local ./out.
+  if [[ -d "/out" ]]; then
+    echo "/out"
+  else
+    echo "${ROOT_DIR}/out"
+  fi
 }
 
 _timestamp() {
@@ -501,6 +504,8 @@ cmd_build() {
   local json_file="${bc_output}/llbic.json"
   _write_build_json_file "${json_file}" "${kernel_ver}" "${kernel_name}" "${clang}" "${llvm_major}"
   _log_step "json.write path=${json_file}"
+  _log_step "kernel_build_log path=${bc_output}/kernel-build.log"
+  _log_step "bitcode_list path=${bc_output}/bitcode_files.txt"
 
   # Optional: also emit JSON to stdout for agent workflows.
   if [[ "${JSON_OUTPUT}" -eq 1 ]]; then
@@ -684,7 +689,7 @@ _compile_lto() {
     CC="${clang}" \
     LLVM=1 \
     -j"${NPROC}" \
-    2>&1 | tee "${SOURCES_DIR}/${kernel_name}-build.log"
+    2>&1 | tee "${output_dir}/kernel-build.log"
 
   info "Collecting bitcode..."
   mkdir -p -- "${output_dir}"
@@ -758,7 +763,7 @@ EOF
     CC="${clang}" \
     LLVM=1 \
     -j"${NPROC}" \
-    2>&1 | tee "${SOURCES_DIR}/${kernel_name}-build.log"
+    2>&1 | tee "${output_dir}/kernel-build.log"
 
   # Restore Makefile
   if grep -qF "${marker}" "${kernel_makefile}"; then
