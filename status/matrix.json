@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "defaults": {
+    "layout": "outtree",
+    "image": "auto",
+    "clang": "auto",
+    "output": null,
+    "timeout_sec": 14400
+  },
+  "targets": [
+    {
+      "kernel": "6.18.16",
+      "notes": "Recent stable (6.x)."
+    },
+    {
+      "kernel": "5.15.0",
+      "notes": "LTS era (5.x)."
+    },
+    {
+      "kernel": "3.18",
+      "notes": "Legacy era (3.x)."
+    }
+  ]
+}
+
