@@ -730,7 +730,10 @@ cmd_build() {
         ;;
       --outtree|--out-of-tree) layout_set=1; build_layout="outtree"; shift ;;
       --intree) layout_set=1; build_layout="intree"; shift ;;
-      --help|-h)   echo "Usage: llbic <VERSION> [--clang VER] [--output DIR] [--json]"; exit 0 ;;
+      --help|-h)
+        echo "Usage: llbic <VERSION> [--clang VER] [--arch ARCH] [--cross PREFIX] [--defconfig TARGET] [--kconfig FILE ...] [--output DIR] [--json] [--outtree|--intree]"
+        exit 0
+        ;;
       --)
         shift
         break
@@ -1288,6 +1291,9 @@ ${BOLD}Examples:${NC}
   llbic 6.12                          # compile kernel 6.12 to bitcode
   llbic 6.12 --clang 18               # use clang-18
   llbic 6.12 --arch arm64             # build for ARM64
+  llbic 6.12 --arch arm64 --cross aarch64-linux-gnu-   # override CROSS_COMPILE
+  llbic 6.12 --defconfig tinyconfig    # use a different Kbuild config target
+  llbic 6.12 -K ./my.fragment -K ./more.fragment       # merge Kconfig fragments
   llbic 6.12 -c 18 -o /tmp/out        # output to a custom directory
   llbic 6.12 --json                   # print JSON summary to stdout (also writes llbic.json)
   llbic 6.12 --outtree                # out-of-tree build (avoids toolchain conflicts)
@@ -1301,6 +1307,12 @@ ${BOLD}Architecture:${NC}
   --cross PREFIX                      CROSS_COMPILE prefix (defaults per arch when known)
   --defconfig TARGET                  Kbuild config target (default: defconfig)
   --kconfig, -K FILE                  Kconfig fragment to merge into .config (repeatable)
+
+${BOLD}Output:${NC}
+  out/linux-<ver>/llbic.log            End-to-end run log
+  out/linux-<ver>/kernel-build.log     Kernel build output
+  out/linux-<ver>/llbic.json           Machine-readable summary (includes arch/config metadata)
+  out/linux-<ver>/bitcode_files.txt    Bitcode file list (relative paths under bitcode_root)
 
 ${BOLD}Docker:${NC}
   docker run --rm -v \$(pwd)/out:/out ghcr.io/cyruscyliu/llbic:latest 6.12
