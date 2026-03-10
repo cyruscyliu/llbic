@@ -117,6 +117,9 @@ with `--output`):
 
 `--json` also prints the JSON summary to stdout.
 
+Note: `kernel/time/timeconst.bc` in the Linux source tree is an input for the `bc`
+calculator (used to generate `include/generated/timeconst.h`), not LLVM bitcode.
+
 ## Community
 
 - Contributions are welcome through issues and pull requests.
