@@ -33,7 +33,7 @@ if [[ -z "${LLBIC_NO_DOCKER:-}" ]] && command -v docker >/dev/null 2>&1; then
         arg="${args[${idx}]}"
     case "${arg}" in
       --json) ((idx+=1)) ;;
-      --clang|-c|--output|-o|--arch|-a|--cross|--defconfig) ((idx+=2)) ;; # skip flag + value
+      --clang|-c|--output|-o|--arch|-a|--cross|--defconfig|--kconfig|-K) ((idx+=2)) ;; # skip flag + value
       --) ((idx+=1)); break ;;
       -*) ((idx+=1)) ;;
       *) kernel_ver="${arg}"; break ;;
@@ -127,6 +127,7 @@ LLBIC_CTX_ARCH=""
 LLBIC_CTX_CROSS_COMPILE=""
 LLBIC_CTX_DEFCONFIG="defconfig"
 LLBIC_CTX_BUILD_LAYOUT=""
+LLBIC_CTX_KCONFIG_FRAGMENTS=()
 
 # --- Colors ---
 RED=$'\033[0;31m'
@@ -168,6 +169,61 @@ _default_cross_for_arch() {
     x86_64) echo "" ;;
     *) echo "" ;;
   esac
+}
+
+_normalize_path_for_json() {
+  local p="$1"
+  # Best-effort: make paths relative to ROOT_DIR when possible.
+  if [[ -n "${ROOT_DIR:-}" && "${p}" == "${ROOT_DIR%/}/"* ]]; then
+    echo "${p#${ROOT_DIR%/}/}"
+  else
+    echo "${p}"
+  fi
+}
+
+_apply_kconfig_fragments() {
+  local kernel_src="$1"
+  local kbuild_dir="$2"
+  local config_path="$3"
+  shift 3
+  local -a fragments=("$@")
+
+  [[ ${#fragments[@]} -gt 0 ]] || return 0
+  [[ -f "${config_path}" ]] || die ".config not found: ${config_path}"
+
+  info "Applying kconfig fragments: ${#fragments[@]}"
+  _log_step "kconfig.fragments count=${#fragments[@]}"
+
+  local merge_script="${kernel_src}/scripts/kconfig/merge_config.sh"
+  if [[ -x "${merge_script}" ]]; then
+    local out_dir="${kbuild_dir:-${kernel_src}}"
+    # merge_config.sh is fairly chatty; keep detailed output in llbic.log.
+    "${merge_script}" -m -r -O "${out_dir}" "${config_path}" "${fragments[@]}" >> "${LOG_FILE}" 2>&1 || \
+      die "merge_config.sh failed (see ${LOG_FILE})"
+  else
+    # Fallback: apply only simple CONFIG_FOO=[ymn] lines using scripts/config.
+    local sc="${kernel_src}/scripts/config"
+    [[ -x "${sc}" ]] || die "Missing scripts/config and scripts/kconfig/merge_config.sh"
+    local frag line key val
+    for frag in "${fragments[@]}"; do
+      while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -z "${line}" ]] && continue
+        [[ "${line}" =~ ^[[:space:]]*# ]] && continue
+        if [[ "${line}" =~ ^(CONFIG_[A-Za-z0-9_]+)=(y|m|n)$ ]]; then
+          key="${BASH_REMATCH[1]}"
+          val="${BASH_REMATCH[2]}"
+          case "${val}" in
+            y) "${sc}" --file "${config_path}" --enable "${key#CONFIG_}" ;;
+            m) "${sc}" --file "${config_path}" --module "${key#CONFIG_}" ;;
+            n) "${sc}" --file "${config_path}" --disable "${key#CONFIG_}" ;;
+          esac
+        elif [[ "${line}" =~ ^#\ (CONFIG_[A-Za-z0-9_]+)\ is\ not\ set$ ]]; then
+          key="${BASH_REMATCH[1]}"
+          "${sc}" --file "${config_path}" --disable "${key#CONFIG_}"
+        fi
+      done < "${frag}"
+    done
+  fi
 }
 
 _validate_kernel_version() {
@@ -450,6 +506,9 @@ _emit_result_json() {
   fi
   printf '"defconfig":"%s",' "$(_json_escape "${LLBIC_CTX_DEFCONFIG:-defconfig}")"
   printf '"build_layout":"%s",' "$(_json_escape "${LLBIC_CTX_BUILD_LAYOUT:-}")"
+  printf '"kconfig_fragments":'
+  _json_array LLBIC_CTX_KCONFIG_FRAGMENTS
+  printf ','
   if [[ -n "${LLBIC_CTX_BITCODE_ROOT:-}" ]]; then
     printf '"bitcode_root":"%s",' "$(_json_escape "${LLBIC_CTX_BITCODE_ROOT}")"
   else
@@ -589,6 +648,7 @@ cmd_build() {
   local arch="x86_64"
   local cross_compile=""
   local defconfig_target="defconfig"
+  local -a kconfig_fragments=()
   local saw_kernel_ver=0
 
   while [[ $# -gt 0 ]]; do
@@ -613,6 +673,10 @@ cmd_build() {
       --defconfig)
         [[ $# -ge 2 ]] || die "--defconfig requires a value (example: --defconfig defconfig)"
         defconfig_target="$2"; shift 2
+        ;;
+      --kconfig|-K)
+        [[ $# -ge 2 ]] || die "--kconfig requires a file path"
+        kconfig_fragments+=("$2"); shift 2
         ;;
       --outtree|--out-of-tree) build_layout="outtree"; shift ;;
       --intree) build_layout="intree"; shift ;;
@@ -645,6 +709,11 @@ cmd_build() {
   [[ -z "${cross_compile}" ]] && cross_compile="$(_default_cross_for_arch "${arch}")"
   _require_one_line "cross compile" "${cross_compile}"
   _require_one_line "defconfig" "${defconfig_target}"
+  local frag
+  for frag in "${kconfig_fragments[@]}"; do
+    _require_one_line "kconfig fragment" "${frag}"
+    [[ -f "${frag}" ]] || die "kconfig fragment not found: ${frag}"
+  done
 
   local kernel_name
   kernel_name="$(_normalize_kernel_name "${kernel_ver}")"
@@ -694,6 +763,15 @@ cmd_build() {
   LLBIC_CTX_CROSS_COMPILE="${cross_compile}"
   LLBIC_CTX_DEFCONFIG="${defconfig_target}"
   LLBIC_CTX_BUILD_LAYOUT="${build_layout}"
+  LLBIC_CTX_KCONFIG_FRAGMENTS=()
+  for frag in "${kconfig_fragments[@]}"; do
+    # Prefer relative paths in JSON for portability.
+    if command -v realpath >/dev/null 2>&1; then
+      LLBIC_CTX_KCONFIG_FRAGMENTS+=("$(_normalize_path_for_json "$(realpath "${frag}")")")
+    else
+      LLBIC_CTX_KCONFIG_FRAGMENTS+=("$(_normalize_path_for_json "${frag}")")
+    fi
+  done
 
   # Always emit llbic.json, even on failures (non-zero exit).
   trap '_finalize_build_artifacts "$?"' EXIT
@@ -773,12 +851,12 @@ cmd_build() {
     _log_step "compile.start strategy=lto kernel_version=${kver}"
     LLBIC_CTX_STRATEGY="lto"
     LLBIC_CTX_BITCODE_ROOT="${kbuild_dir:-${kernel_src}}"
-    _compile_lto "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${llvm_major}" "${kbuild_dir}" "${arch}" "${cross_compile}" "${defconfig_target}"
+    _compile_lto "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${llvm_major}" "${kbuild_dir}" "${arch}" "${cross_compile}" "${defconfig_target}" "${kconfig_fragments[@]}"
   else
     _log_step "compile.start strategy=irdumper kernel_version=${kver}"
     LLBIC_CTX_STRATEGY="irdumper"
     LLBIC_CTX_BITCODE_ROOT="${kbuild_dir:-${kernel_src}}"
-    _compile_irdumper "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${clang_version}" "${llvm_major}" "${kbuild_dir}" "${arch}" "${cross_compile}" "${defconfig_target}"
+    _compile_irdumper "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${clang_version}" "${llvm_major}" "${kbuild_dir}" "${arch}" "${cross_compile}" "${defconfig_target}" "${kconfig_fragments[@]}"
   fi
 
   echo "" >&2
@@ -935,6 +1013,8 @@ cmd_compile() {
 # ============================================================
 _compile_lto() {
   local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" llvm_major="$5" kbuild_dir="${6:-}" arch="${7:-x86_64}" cross_compile="${8:-}" defconfig_target="${9:-defconfig}"
+  shift 9
+  local -a kconfig_fragments=("$@")
   local -a make_extra=()
   if [[ -n "${kbuild_dir}" ]]; then
     make_extra+=(O="${kbuild_dir}")
@@ -951,6 +1031,9 @@ _compile_lto() {
 
   local config_path="${kernel_src}/.config"
   [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
+
+  _apply_kconfig_fragments "${kernel_src}" "${kbuild_dir}" "${config_path}" "${kconfig_fragments[@]}"
+
   "${kernel_src}/scripts/config" --file "${config_path}" \
     --enable LTO_CLANG \
     --enable LTO_CLANG_FULL \
@@ -985,6 +1068,8 @@ _compile_lto() {
 
 _compile_irdumper() {
   local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" clang_version="$5" llvm_major="$6" kbuild_dir="${7:-}" arch="${8:-x86_64}" cross_compile="${9:-}" defconfig_target="${10:-defconfig}"
+  shift 10
+  local -a kconfig_fragments=("$@")
   local -a make_extra=()
   if [[ -n "${kbuild_dir}" ]]; then
     make_extra+=(O="${kbuild_dir}")
@@ -1017,6 +1102,10 @@ _compile_irdumper() {
   info "Generating defconfig..."
   make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
     CC="${clang}" LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
+
+  local config_path="${kernel_src}/.config"
+  [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
+  _apply_kconfig_fragments "${kernel_src}" "${kbuild_dir}" "${config_path}" "${kconfig_fragments[@]}"
 
   if ! grep -qF "${marker}" "${kernel_makefile}"; then
     cat >> "${kernel_makefile}" <<EOF
@@ -1139,6 +1228,7 @@ ${BOLD}Architecture:${NC}
   --arch, -a ARCH                     x86_64 (default), arm, arm64, mips, riscv
   --cross PREFIX                      CROSS_COMPILE prefix (defaults per arch when known)
   --defconfig TARGET                  Kbuild config target (default: defconfig)
+  --kconfig, -K FILE                  Kconfig fragment to merge into .config (repeatable)
 
 ${BOLD}Docker:${NC}
   docker run --rm -v \$(pwd)/out:/out ghcr.io/cyruscyliu/llbic:latest 6.12
