@@ -1,10 +1,36 @@
-version: '2'
 services:
   llbic:
     container_name: llbic
-    image: llbic:latest
+    build:
+      context: .
+      dockerfile: docker/${DOCKERFILE:-Dockerfile}
+    image: llbic:${TAG:-latest}
+    user: "${UID:-1000}:${GID:-1000}"
     stdin_open: true
     tty: true
-    working_dir: /root
     volumes:
-      - .:/root/llbic
+      - .:/home/llbic
+
+  llbic-mid:
+    container_name: llbic-mid
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mid
+    image: llbic:mid
+    user: "${UID:-1000}:${GID:-1000}"
+    stdin_open: true
+    tty: true
+    volumes:
+      - .:/home/llbic
+
+  llbic-legacy:
+    container_name: llbic-legacy
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.legacy
+    image: llbic:legacy
+    user: "${UID:-1000}:${GID:-1000}"
+    stdin_open: true
+    tty: true
+    volumes:
+      - .:/home/llbic

@@ -4,15 +4,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUT_DIR="${ROOT_DIR}/sources"
+CONF_FILE="${ROOT_DIR}/sources.conf"
+
+if [[ ! -f "${CONF_FILE}" ]]; then
+  echo "Error: config file not found: ${CONF_FILE}" >&2
+  exit 1
+fi
 
 mkdir -p "${OUT_DIR}"
-
-URLS=(
-  "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.16.tar.xz"
-  "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.19.6.tar.xz"
-  "https://git.kernel.org/torvalds/t/linux-7.0-rc2.tar.gz"
-  "https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/llvm-project-15.0.7.src.tar.xz"
-)
 
 download_with_curl() {
   local url="$1"
@@ -35,7 +34,11 @@ else
   exit 1
 fi
 
-for url in "${URLS[@]}"; do
+while IFS= read -r line; do
+  # Skip blank lines and comments
+  [[ -z "${line}" || "${line}" =~ ^[[:space:]]*# ]] && continue
+
+  url="${line}"
   file_name="$(basename "${url}")"
   output_path="${OUT_DIR}/${file_name}"
 
@@ -50,6 +53,6 @@ for url in "${URLS[@]}"; do
   else
     download_with_wget "${url}" "${output_path}"
   fi
-done
+done < "${CONF_FILE}"
 
 echo "Done. Files are in: ${OUT_DIR}"

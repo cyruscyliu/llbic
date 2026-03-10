@@ -1,7 +1,5 @@
 FROM ubuntu:18.04
 
-USER root
-
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -83,4 +81,10 @@ RUN python3 -m pip install --upgrade pip && \
       pip3 install networkx graphviz && \
       ln -sf /usr/bin/python3 /usr/bin/python
 
-WORKDIR /root/llbic
+RUN apt-get update && apt-get install -y --no-install-recommends sudo \
+      && rm -rf /var/lib/apt/lists/* \
+      && useradd -m -s /bin/bash llbic \
+      && echo "llbic ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/llbic
+
+USER llbic
+WORKDIR /home/llbic

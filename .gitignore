@@ -135,3 +135,6 @@ dmypy.json
 
 # Linux kernel
 linux-*
+
+# Downloaded sources and build artifacts
+sources/
