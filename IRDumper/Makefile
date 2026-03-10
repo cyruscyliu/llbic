@@ -20,11 +20,11 @@ build_src_func = \
 		&& PATH=${LLVM_BUILD}/bin:${PATH} \
 			CC=clang CXX=clang++ \
 			cmake ${1} \
-				-G "${CMAKE_GENERATOR}" \
-				-DCMAKE_BUILD_TYPE=Release \
-				-DCMAKE_CXX_FLAGS_RELEASE="-std=${CXX_STD} -fno-rtti -fPIC -O3" \
-				-DLLVM_DIR=${LLVM_BUILD}/lib/cmake/llvm \
-		&& cmake --build . -j${NPROC})
+					-G "${CMAKE_GENERATOR}" \
+					-DCMAKE_BUILD_TYPE=Release \
+					-DCMAKE_CXX_FLAGS_RELEASE="-std=${CXX_STD} -fno-rtti -fPIC -O3" \
+					-DLLVM_DIR=${LLVM_BUILD}/lib/cmake/llvm \
+			&& cmake --build . -- -j${NPROC})
 
 all: dumper
 
