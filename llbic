@@ -18,15 +18,15 @@ LAST_BITCODE_FILES=()
 LOG_FILE=""
 
 # --- Colors ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BOLD='\033[1m'
-NC='\033[0m'
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[0;33m'
+BOLD=$'\033[1m'
+NC=$'\033[0m'
 
-info()  { echo -e "${GREEN}[+]${NC} $*" >&2; }
-warn()  { echo -e "${YELLOW}[!]${NC} $*" >&2; }
-error() { echo -e "${RED}[-]${NC} $*" >&2; }
+info()  { printf '%s[+]%s %s\n' "${GREEN}" "${NC}" "$*" >&2; }
+warn()  { printf '%s[!]%s %s\n' "${YELLOW}" "${NC}" "$*" >&2; }
+error() { printf '%s[-]%s %s\n' "${RED}" "${NC}" "$*" >&2; }
 die()   { error "$@"; exit 1; }
 
 # ============================================================
@@ -257,7 +257,7 @@ cmd_build() {
   kver="$(make -C "${kernel_src}" -s kernelversion 2>/dev/null)" || kver="${kernel_ver}"
 
   echo "" >&2
-  echo -e "${BOLD}=== ${kernel_name} (${kver}) — ${clang} (LLVM ${llvm_major}) ===${NC}" >&2
+  printf '%s=== %s (%s) — %s (LLVM %s) ===%s\n' "${BOLD}" "${kernel_name}" "${kver}" "${clang}" "${llvm_major}" "${NC}" >&2
 
   if _version_ge "${kver}" "5.12"; then
     _log_step "compile.start strategy=lto kernel_version=${kver}"
@@ -412,7 +412,7 @@ cmd_compile() {
     local kver
     kver="$(make -C "${kernel_src}" -s kernelversion 2>/dev/null)" || kver="unknown"
 
-    echo -e "${BOLD}=== ${kernel_name} (${kver}) ===${NC}" >&2
+    printf '%s=== %s (%s) ===%s\n' "${BOLD}" "${kernel_name}" "${kver}" "${NC}" >&2
 
     if _version_ge "${kver}" "5.12"; then
       _compile_lto "${kernel_src}" "${kernel_name}" "${output_dir}" "${clang}" "${llvm_major}"
@@ -545,7 +545,7 @@ EOF
 # list — show available kernels and bitcode
 # ============================================================
 cmd_list() {
-  echo -e "${BOLD}Kernel sources:${NC}"
+  printf '%sKernel sources:%s\n' "${BOLD}" "${NC}"
   if [[ -d "${SOURCES_DIR}" ]]; then
     for d in "${SOURCES_DIR}"/linux-*/; do
       [[ -d "${d}" ]] || continue
@@ -560,7 +560,7 @@ cmd_list() {
   fi
 
   echo ""
-  echo -e "${BOLD}Bitcode output:${NC}"
+  printf '%sBitcode output:%s\n' "${BOLD}" "${NC}"
   if [[ -d "${BUILD_DIR}" ]]; then
     for d in "${BUILD_DIR}"/*/; do
       [[ -d "${d}" ]] || continue
