@@ -58,6 +58,14 @@ RUN for v in 14 15 16 18; do \
         --slave /usr/bin/llvm-config llvm-config /usr/bin/llvm-config-${v} \
         --slave /usr/bin/llvm-link llvm-link /usr/bin/llvm-link-${v} \
         --slave /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-${v} \
+        --slave /usr/bin/llvm-nm llvm-nm /usr/bin/llvm-nm-${v} \
+        --slave /usr/bin/llvm-objcopy llvm-objcopy /usr/bin/llvm-objcopy-${v} \
+        --slave /usr/bin/llvm-objdump llvm-objdump /usr/bin/llvm-objdump-${v} \
+        --slave /usr/bin/llvm-ranlib llvm-ranlib /usr/bin/llvm-ranlib-${v} \
+        --slave /usr/bin/llvm-readelf llvm-readelf /usr/bin/llvm-readelf-${v} \
+        --slave /usr/bin/llvm-size llvm-size /usr/bin/llvm-size-${v} \
+        --slave /usr/bin/llvm-strings llvm-strings /usr/bin/llvm-strings-${v} \
+        --slave /usr/bin/llvm-strip llvm-strip /usr/bin/llvm-strip-${v} \
         --slave /usr/bin/llvm-dis llvm-dis /usr/bin/llvm-dis-${v} \
         --slave /usr/bin/lld lld /usr/bin/lld-${v} \
         --slave /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-${v}; \

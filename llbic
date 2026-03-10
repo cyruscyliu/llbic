@@ -16,13 +16,59 @@ if [[ -z "${LLBIC_NO_DOCKER:-}" ]] && command -v docker >/dev/null 2>&1; then
   fi
 
   if [[ "${in_container}" -eq 0 ]]; then
-    image="${LLBIC_IMAGE:-ghcr.io/cyruscyliu/llbic:latest}"
-    dockerfile="${LLBIC_DOCKERFILE:-docker/Dockerfile}"
+    image=""
+    dockerfile=""
+
+    # Choose an image based on the kernel major version unless the user overrides it.
+    # Override:
+    # - LLBIC_IMAGE=... (image tag to run)
+    # - LLBIC_DOCKERFILE=... (Dockerfile to build when image is missing)
+    if [[ -n "${LLBIC_IMAGE:-}" ]]; then
+      image="${LLBIC_IMAGE}"
+    else
+      kernel_ver=""
+      args=("$@")
+      idx=0
+      while [[ ${idx} -lt ${#args[@]} ]]; do
+        arg="${args[${idx}]}"
+        case "${arg}" in
+          --json) ((idx+=1)) ;;
+          --clang|-c|--output|-o) ((idx+=2)) ;; # skip flag + value
+          --) ((idx+=1)); break ;;
+          -*) ((idx+=1)) ;;
+          *) kernel_ver="${arg}"; break ;;
+        esac
+      done
+
+      major=""
+      if [[ "${kernel_ver}" =~ ^([0-9]+)\\. ]]; then
+        major="${BASH_REMATCH[1]}"
+      elif [[ "${kernel_ver}" =~ ^([0-9]+)$ ]]; then
+        major="${BASH_REMATCH[1]}"
+      fi
+
+      case "${major}" in
+        2|3) image="ghcr.io/cyruscyliu/llbic:legacy" ;;
+        4|5) image="ghcr.io/cyruscyliu/llbic:mid" ;;
+        *)   image="ghcr.io/cyruscyliu/llbic:latest" ;;
+      esac
+    fi
+
+    if [[ -n "${LLBIC_DOCKERFILE:-}" ]]; then
+      dockerfile="${LLBIC_DOCKERFILE}"
+    else
+      case "${image}" in
+        *:legacy) dockerfile="docker/Dockerfile.legacy" ;;
+        *:mid)    dockerfile="docker/Dockerfile.mid" ;;
+        *)        dockerfile="docker/Dockerfile" ;;
+      esac
+    fi
+
     host_root="$(pwd)"
     mkdir -p -- "${host_root}/out" "${host_root}/sources"
 
     # Prefer a local image if present; otherwise build from the local repo.
-    if ! docker image inspect "${image}" >/dev/null 2>&1; then
+    if [[ -n "${LLBIC_REBUILD:-}" ]] || ! docker image inspect "${image}" >/dev/null 2>&1; then
       if [[ ! -f "${host_root}/${dockerfile}" ]]; then
         die "Docker image '${image}' not found locally, and Dockerfile not found: ${dockerfile}"
       fi
