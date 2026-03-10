@@ -107,6 +107,20 @@ LAST_BITCODE_FILES=()
 LAST_BITCODE_FILES_REL=()
 LOG_FILE=""
 
+# Build-context globals used to emit llbic.json even on failures (via EXIT trap).
+LLBIC_CTX_ACTIVE=0
+LLBIC_CTX_PHASE=""
+LLBIC_CTX_KERNEL_VER=""
+LLBIC_CTX_KERNEL_NAME=""
+LLBIC_CTX_KERNEL_SRC=""
+LLBIC_CTX_BC_OUTPUT=""
+LLBIC_CTX_KBUILD_DIR=""
+LLBIC_CTX_JSON_FILE=""
+LLBIC_CTX_BC_LIST_FILE=""
+LLBIC_CTX_KERNEL_BUILD_LOG=""
+LLBIC_CTX_CLANG=""
+LLBIC_CTX_LLVM_MAJOR=""
+
 # --- Colors ---
 RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
@@ -313,14 +327,49 @@ _emit_build_json() {
   local clang="$3"
   local llvm_major="$4"
 
+  # Backwards-compatible success-only JSON.
+  _emit_result_json "success" 0 "" "" "${kernel_ver}" "${kernel_name}" "${clang}" "${llvm_major}"
+}
+
+_emit_result_json() {
+  local status="$1"
+  local exit_code="$2"
+  local error_step="$3"
+  local error_msg="$4"
+  local kernel_ver="$5"
+  local kernel_name="$6"
+  local clang="$7"
+  local llvm_major="$8"
+
   printf '{'
-  printf '"status":"success",'
+  printf '"status":"%s",' "$(_json_escape "${status}")"
+  printf '"exit_code":%s,' "${exit_code}"
+  if [[ -n "${error_step}" ]]; then
+    printf '"error_step":"%s",' "$(_json_escape "${error_step}")"
+  else
+    printf '"error_step":null,'
+  fi
+  if [[ -n "${error_msg}" ]]; then
+    printf '"error":"%s",' "$(_json_escape "${error_msg}")"
+  else
+    printf '"error":null,'
+  fi
   printf '"kernel_version":"%s",' "$(_json_escape "${kernel_ver}")"
   printf '"kernel_name":"%s",' "$(_json_escape "${kernel_name}")"
   printf '"source_url":"%s",' "$(_json_escape "${LAST_SOURCE_URL}")"
   printf '"source_dir":"%s",' "$(_json_escape "${LAST_SOURCE_DIR}")"
   printf '"output_dir":"%s",' "$(_json_escape "${LAST_OUTPUT_DIR}")"
   printf '"log_file":"%s",' "$(_json_escape "${LAST_LOG_FILE}")"
+  if [[ -n "${LLBIC_CTX_KERNEL_BUILD_LOG:-}" ]]; then
+    printf '"kernel_build_log":"%s",' "$(_json_escape "${LLBIC_CTX_KERNEL_BUILD_LOG}")"
+  else
+    printf '"kernel_build_log":null,'
+  fi
+  if [[ -n "${LLBIC_CTX_BC_LIST_FILE:-}" ]]; then
+    printf '"bitcode_list_file":"%s",' "$(_json_escape "${LLBIC_CTX_BC_LIST_FILE}")"
+  else
+    printf '"bitcode_list_file":null,'
+  fi
   printf '"clang":"%s",' "$(_json_escape "${clang}")"
   printf '"llvm_major":"%s",' "$(_json_escape "${llvm_major}")"
   printf '"bitcode_files":'
@@ -343,9 +392,60 @@ _emit_build_json() {
 
 _write_build_json_file() {
   local json_file="$1"
+  local status="$2"
+  local exit_code="$3"
+  local error_step="$4"
+  local error_msg="$5"
+  shift
+  shift
+  shift
+  shift
   shift
   mkdir -p -- "$(dirname "${json_file}")"
-  _emit_build_json "$@" > "${json_file}"
+  _emit_result_json "${status}" "${exit_code}" "${error_step}" "${error_msg}" "$@" > "${json_file}"
+}
+
+_finalize_build_artifacts() {
+  local rc="$1"
+  [[ "${LLBIC_CTX_ACTIVE}" -eq 1 ]] || return 0
+  LLBIC_CTX_ACTIVE=0
+
+  local bc_output="${LLBIC_CTX_BC_OUTPUT}"
+  [[ -n "${bc_output}" && -d "${bc_output}" ]] || return 0
+
+  # Collect whatever exists, even for failed builds.
+  _collect_bitcode_files "${bc_output}"
+  [[ -n "${LLBIC_CTX_BC_LIST_FILE}" ]] && _write_bitcode_list_file "${bc_output}" "${LLBIC_CTX_BC_LIST_FILE}"
+  _collect_kernel_images "${LLBIC_CTX_KERNEL_SRC}" "${LLBIC_CTX_KBUILD_DIR}"
+
+  local status="fail"
+  if [[ "${rc}" -eq 0 && ${#LAST_BITCODE_FILES[@]} -gt 0 ]]; then
+    status="success"
+  fi
+
+  local err_step=""
+  local err_msg=""
+  if [[ "${status}" != "success" ]]; then
+    err_step="${LLBIC_CTX_PHASE:-}"
+    err_msg="see llbic.log and kernel-build.log for details"
+  fi
+
+  if [[ -n "${LLBIC_CTX_JSON_FILE}" ]]; then
+    _write_build_json_file \
+      "${LLBIC_CTX_JSON_FILE}" \
+      "${status}" \
+      "${rc}" \
+      "${err_step}" \
+      "${err_msg}" \
+      "${LLBIC_CTX_KERNEL_VER}" \
+      "${LLBIC_CTX_KERNEL_NAME}" \
+      "${LLBIC_CTX_CLANG:-}" \
+      "${LLBIC_CTX_LLVM_MAJOR:-}"
+  fi
+
+  if [[ "${JSON_OUTPUT}" -eq 1 && -n "${LLBIC_CTX_JSON_FILE}" && -f "${LLBIC_CTX_JSON_FILE}" ]]; then
+    cat "${LLBIC_CTX_JSON_FILE}"
+  fi
 }
 
 _download_file() {
@@ -425,9 +525,28 @@ cmd_build() {
   mkdir -p -- "${SOURCES_DIR}" "${build_root}"
   mkdir -p -- "${bc_output}"
   : > "${LOG_FILE}"
+
+  # Populate build context for failure reporting.
+  LLBIC_CTX_ACTIVE=1
+  LLBIC_CTX_PHASE="init"
+  LLBIC_CTX_KERNEL_VER="${kernel_ver}"
+  LLBIC_CTX_KERNEL_NAME="${kernel_name}"
+  LLBIC_CTX_KERNEL_SRC="${kernel_src}"
+  LLBIC_CTX_BC_OUTPUT="${bc_output}"
+  LLBIC_CTX_KBUILD_DIR=""
+  LLBIC_CTX_JSON_FILE="${bc_output}/llbic.json"
+  LLBIC_CTX_BC_LIST_FILE="${bc_output}/bitcode_files.txt"
+  LLBIC_CTX_KERNEL_BUILD_LOG="${bc_output}/kernel-build.log"
+  LLBIC_CTX_CLANG=""
+  LLBIC_CTX_LLVM_MAJOR=""
+
+  # Always emit llbic.json, even on failures (non-zero exit).
+  trap '_finalize_build_artifacts "$?"' EXIT
+
   _log_step "build.start kernel=${kernel_name} source_url=${url} output_dir=${bc_output}"
 
   # Step 1: Download
+  LLBIC_CTX_PHASE="download"
   if [[ -d "${kernel_src}" ]]; then
     info "Source exists: ${kernel_name}"
     _log_step "source.reuse path=${kernel_src}"
@@ -451,6 +570,7 @@ cmd_build() {
   [[ -d "${kernel_src}" ]] || die "Source not found after extraction: ${kernel_src}"
 
   # Step 2: Compile
+  LLBIC_CTX_PHASE="compile"
   local clang
   clang="$(_resolve_clang "${clang_version}")"
   command -v "${clang}" >/dev/null 2>&1 || die "${clang} not found"
@@ -459,6 +579,8 @@ cmd_build() {
   llvm_major="$(${clang} --version | grep -oP 'clang version \K[0-9]+')"
   [[ -z "${clang_version}" ]] && clang_version="${llvm_major}"
   _log_step "compile.prepare clang=${clang} llvm_major=${llvm_major}"
+  LLBIC_CTX_CLANG="${clang}"
+  LLBIC_CTX_LLVM_MAJOR="${llvm_major}"
 
   local kbuild_dir=""
   if [[ "${build_layout}" == "outtree" ]]; then
@@ -466,6 +588,7 @@ cmd_build() {
     kbuild_dir="${bc_output}/kbuild-clang${clang_version}"
     mkdir -p -- "${kbuild_dir}"
     _log_step "compile.layout outtree=1 kbuild_dir=${kbuild_dir}"
+    LLBIC_CTX_KBUILD_DIR="${kbuild_dir}"
   else
     _log_step "compile.layout outtree=0"
   fi
@@ -500,17 +623,9 @@ cmd_build() {
   [[ -n "${LAST_VMLINUX_BC}" ]] && _log_step "bitcode.primary path=${LAST_VMLINUX_BC}"
   _log_step "build.done log_file=${LOG_FILE}"
 
-  # Always write a machine-readable summary file next to the build artifacts.
-  local json_file="${bc_output}/llbic.json"
-  _write_build_json_file "${json_file}" "${kernel_ver}" "${kernel_name}" "${clang}" "${llvm_major}"
-  _log_step "json.write path=${json_file}"
-  _log_step "kernel_build_log path=${bc_output}/kernel-build.log"
-  _log_step "bitcode_list path=${bc_output}/bitcode_files.txt"
-
-  # Optional: also emit JSON to stdout for agent workflows.
-  if [[ "${JSON_OUTPUT}" -eq 1 ]]; then
-    cat "${json_file}"
-  fi
+  # Success path: write artifacts now and disable the EXIT trap to avoid double work.
+  trap - EXIT
+  _finalize_build_artifacts 0
 }
 
 # ============================================================
