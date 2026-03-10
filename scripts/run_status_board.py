@@ -156,8 +156,8 @@ def render_status_md(status: dict[str, Any]) -> str:
     lines.append(f"- Generated: `{meta['generated_at']}`")
     lines.append(f"- Git SHA: `{meta['git_sha']}`")
     lines.append("")
-    lines.append("| Kernel | Result | Image | Clang | Layout | Bitcode | vmlinux.bc | Notes |")
-    lines.append("|---|---|---|---|---|---:|---|---|")
+    lines.append("| Kernel | Result | Image | Clang | Layout | Bitcode | Notes |")
+    lines.append("|---|---|---|---|---|---:|---|")
     for row in status["rows"]:
         kernel = row["kernel"]
         result = row["result"]
@@ -165,13 +165,12 @@ def render_status_md(status: dict[str, Any]) -> str:
         clang = row.get("clang_effective", "")
         layout = row.get("layout", "")
         bitcode_count = row.get("bitcode_count", 0)
-        vmlinux = "yes" if row.get("vmlinux_bc") else "no"
         notes = row.get("notes", "")
-        lines.append(f"| `{kernel}` | **{result}** | `{image}` | `{clang}` | `{layout}` | {bitcode_count} | {vmlinux} | {notes} |")
+        lines.append(f"| `{kernel}` | **{result}** | `{image}` | `{clang}` | `{layout}` | {bitcode_count} | {notes} |")
     lines.append("")
     lines.append("Result definition:")
-    lines.append("- pass: build completed and produced at least one `.bc` file")
-    lines.append("- fail: build failed or no `.bc` files were produced")
+    lines.append("- pass: build completed and produced at least one LLVM bitcode module")
+    lines.append("- fail: build failed or no LLVM bitcode modules were detected")
     lines.append("")
     return "\n".join(lines)
 
@@ -255,13 +254,11 @@ def main() -> int:
 
         j = safe_read_json(llbic_json)
         bitcode_count = 0
-        vmlinux_bc = None
         clang_effective = t.clang
         image_effective = t.image
 
         if j:
             bitcode_count = int(j.get("bitcode_count") or 0)
-            vmlinux_bc = j.get("vmlinux_bc")
             clang_effective = str(j.get("llvm_major") or t.clang)
             image_effective = env.get("LLBIC_IMAGE") or guess_image_from_kernel(t.kernel)
 
@@ -286,7 +283,6 @@ def main() -> int:
             "duration_sec": duration_sec,
             "result": result,
             "bitcode_count": bitcode_count,
-            "vmlinux_bc": vmlinux_bc,
             "notes": t.notes,
             "paths": {
                 "llbic_json": str(llbic_json.relative_to(repo_root)) if llbic_json.exists() else None,

@@ -4,7 +4,8 @@ This folder contains the test matrix and generated status board for `llbic`.
 
 ## Matrix
 
-Edit [`matrix.json`](matrix.json) to define which kernel versions to test and with what knobs.
+Edit [`matrix.json`](matrix.json) to define which kernel versions to test and
+with what knobs.
 
 ## Run
 

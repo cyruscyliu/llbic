@@ -120,6 +120,8 @@ LLBIC_CTX_BC_LIST_FILE=""
 LLBIC_CTX_KERNEL_BUILD_LOG=""
 LLBIC_CTX_CLANG=""
 LLBIC_CTX_LLVM_MAJOR=""
+LLBIC_CTX_STRATEGY=""
+LLBIC_CTX_BITCODE_ROOT=""
 
 # --- Colors ---
 RED=$'\033[0;31m'
@@ -254,31 +256,36 @@ _json_array() {
 }
 
 _collect_bitcode_files() {
-  local output_dir="$1"
+  local search_root="$1"
+  local kind="$2"
   LAST_BITCODE_FILES=()
   LAST_BITCODE_FILES_REL=()
-  [[ -d "${output_dir}" ]] || return 0
+  [[ -d "${search_root}" ]] || return 0
+
+  local pattern=""
+  case "${kind}" in
+    lto) pattern="*.o" ;;
+    irdumper) pattern="*.bc" ;;
+    *) die "Unknown bitcode kind: ${kind}" ;;
+  esac
 
   while IFS= read -r file; do
-    LAST_BITCODE_FILES+=("${file}")
-    # Relative to output_dir for machine portability.
-    local rel="${file#${output_dir%/}/}"
-    LAST_BITCODE_FILES_REL+=("${rel}")
-  done < <(find "${output_dir}" -maxdepth 1 -type f -name '*.bc' | sort)
-
-  if [[ -f "${output_dir}/vmlinux.bc" ]]; then
-    LAST_VMLINUX_BC="${output_dir}/vmlinux.bc"
-  else
-    LAST_VMLINUX_BC=""
-  fi
+    # Only count real LLVM bitcode. Kernel sources also contain files ending in
+    # .bc that are inputs for the 'bc' calculator (e.g. kernel/time/timeconst.bc).
+    if file "${file}" 2>/dev/null | grep -q "LLVM IR bitcode"; then
+      LAST_BITCODE_FILES+=("${file}")
+      # Relative to search_root for portability.
+      local rel="${file#${search_root%/}/}"
+      LAST_BITCODE_FILES_REL+=("${rel}")
+    fi
+  done < <(find "${search_root}" -type f -name "${pattern}" | sort)
 }
 
 _write_bitcode_list_file() {
-  local output_dir="$1"
-  local list_file="$2"
+  local list_file="$1"
   mkdir -p -- "$(dirname "${list_file}")"
-  # One relative path per line, stable order.
-  (cd "${output_dir}" && find . -maxdepth 1 -type f -name '*.bc' -printf '%P\n' | sort) > "${list_file}"
+  # One relative path per line (LLVM IR only), stable order.
+  printf '%s\n' "${LAST_BITCODE_FILES_REL[@]}" > "${list_file}"
 }
 
 _collect_kernel_images() {
@@ -360,6 +367,11 @@ _emit_result_json() {
   printf '"source_dir":"%s",' "$(_json_escape "${LAST_SOURCE_DIR}")"
   printf '"output_dir":"%s",' "$(_json_escape "${LAST_OUTPUT_DIR}")"
   printf '"log_file":"%s",' "$(_json_escape "${LAST_LOG_FILE}")"
+  if [[ -n "${LLBIC_CTX_BITCODE_ROOT:-}" ]]; then
+    printf '"bitcode_root":"%s",' "$(_json_escape "${LLBIC_CTX_BITCODE_ROOT}")"
+  else
+    printf '"bitcode_root":null,'
+  fi
   if [[ -n "${LLBIC_CTX_KERNEL_BUILD_LOG:-}" ]]; then
     printf '"kernel_build_log":"%s",' "$(_json_escape "${LLBIC_CTX_KERNEL_BUILD_LOG}")"
   else
@@ -413,10 +425,20 @@ _finalize_build_artifacts() {
   local bc_output="${LLBIC_CTX_BC_OUTPUT}"
   [[ -n "${bc_output}" && -d "${bc_output}" ]] || return 0
 
+  local bitcode_root="${LLBIC_CTX_BITCODE_ROOT}"
+  local strategy="${LLBIC_CTX_STRATEGY}"
+  if [[ -z "${bitcode_root}" || -z "${strategy}" || ! -d "${bitcode_root}" ]]; then
+    bitcode_root="${bc_output}"
+    strategy="irdumper"
+  fi
+
   # Collect whatever exists, even for failed builds.
-  _collect_bitcode_files "${bc_output}"
-  [[ -n "${LLBIC_CTX_BC_LIST_FILE}" ]] && _write_bitcode_list_file "${bc_output}" "${LLBIC_CTX_BC_LIST_FILE}"
+  _collect_bitcode_files "${bitcode_root}" "${strategy}"
+  [[ -n "${LLBIC_CTX_BC_LIST_FILE}" ]] && _write_bitcode_list_file "${LLBIC_CTX_BC_LIST_FILE}"
   _collect_kernel_images "${LLBIC_CTX_KERNEL_SRC}" "${LLBIC_CTX_KBUILD_DIR}"
+  # llbic does not force-link vmlinux.bc by default; only report it if the build
+  # produced one in the output directory.
+  [[ -f "${bc_output}/vmlinux.bc" ]] && LAST_VMLINUX_BC="${bc_output}/vmlinux.bc" || LAST_VMLINUX_BC=""
 
   local status="fail"
   if [[ "${rc}" -eq 0 && ${#LAST_BITCODE_FILES[@]} -gt 0 ]]; then
@@ -539,6 +561,8 @@ cmd_build() {
   LLBIC_CTX_KERNEL_BUILD_LOG="${bc_output}/kernel-build.log"
   LLBIC_CTX_CLANG=""
   LLBIC_CTX_LLVM_MAJOR=""
+  LLBIC_CTX_STRATEGY=""
+  LLBIC_CTX_BITCODE_ROOT=""
 
   # Always emit llbic.json, even on failures (non-zero exit).
   trap '_finalize_build_artifacts "$?"' EXIT
@@ -601,27 +625,18 @@ cmd_build() {
 
   if _version_ge "${kver}" "5.12"; then
     _log_step "compile.start strategy=lto kernel_version=${kver}"
+    LLBIC_CTX_STRATEGY="lto"
+    LLBIC_CTX_BITCODE_ROOT="${kbuild_dir:-${kernel_src}}"
     _compile_lto "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${llvm_major}" "${kbuild_dir}"
   else
     _log_step "compile.start strategy=irdumper kernel_version=${kver}"
+    LLBIC_CTX_STRATEGY="irdumper"
+    LLBIC_CTX_BITCODE_ROOT="${kbuild_dir:-${kernel_src}}"
     _compile_irdumper "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${clang_version}" "${llvm_major}" "${kbuild_dir}"
   fi
 
   echo "" >&2
   info "Done. Output: ${bc_output}/"
-  [[ -f "${bc_output}/vmlinux.bc" ]] && info "vmlinux.bc: ${bc_output}/vmlinux.bc"
-  _collect_bitcode_files "${bc_output}"
-  local bc_list_file="${bc_output}/bitcode_files.txt"
-  _write_bitcode_list_file "${bc_output}" "${bc_list_file}"
-  _log_step "bitcode_list.write path=${bc_list_file}"
-  _collect_kernel_images "${kernel_src}" "${kbuild_dir}"
-  _log_step "compile.done bitcode_count=${#LAST_BITCODE_FILES[@]}"
-  if [[ ${#LAST_KERNEL_IMAGES[@]} -gt 0 ]]; then
-    info "kernel images: ${#LAST_KERNEL_IMAGES[@]}"
-    _log_step "kernel_images.detected count=${#LAST_KERNEL_IMAGES[@]}"
-  fi
-  [[ -n "${LAST_VMLINUX_BC}" ]] && _log_step "bitcode.primary path=${LAST_VMLINUX_BC}"
-  _log_step "build.done log_file=${LOG_FILE}"
 
   # Success path: write artifacts now and disable the EXIT trap to avoid double work.
   trap - EXIT
@@ -806,27 +821,15 @@ _compile_lto() {
     -j"${NPROC}" \
     2>&1 | tee "${output_dir}/kernel-build.log"
 
-  info "Collecting bitcode..."
-  mkdir -p -- "${output_dir}"
-
-  local bc_count=0
   local search_root="${kernel_src}"
   [[ -n "${kbuild_dir}" ]] && search_root="${kbuild_dir}"
-  while IFS= read -r -d '' obj; do
-    if file "${obj}" | grep -q "LLVM IR bitcode"; then
-      cp "${obj}" "${output_dir}/$(basename "${obj}" .o).bc"
-      ((bc_count++))
-    fi
-  done < <(find "${search_root}" -name '*.o' -print0)
 
-  if [[ ${bc_count} -gt 0 ]]; then
-    info "Linking ${bc_count} .bc files into vmlinux.bc..."
-    find "${output_dir}" -name '*.bc' | \
-      xargs llvm-link -o "${output_dir}/vmlinux.bc" 2>/dev/null || \
-      warn "llvm-link failed (may need more memory)"
+  info "Collecting bitcode module list..."
+  _collect_bitcode_files "${search_root}" "lto"
+
+  if [[ ${#LAST_BITCODE_FILES[@]} -eq 0 ]]; then
+    warn "No LLVM bitcode modules were detected under: ${search_root}"
   fi
-
-  info "Collected ${bc_count} bitcode files in ${output_dir}"
 }
 
 _compile_irdumper() {
@@ -888,23 +891,15 @@ EOF
     mv "${kernel_makefile}.tmp" "${kernel_makefile}"
   fi
 
-  info "Collecting .bc files..."
-  mkdir -p -- "${output_dir}"
   local search_root="${kernel_src}"
   [[ -n "${kbuild_dir}" ]] && search_root="${kbuild_dir}"
-  find "${search_root}" -name '*.bc' -exec cp {} "${output_dir}/" \;
 
-  local bc_count
-  bc_count="$(find "${output_dir}" -name '*.bc' | wc -l)"
+  info "Collecting bitcode module list..."
+  _collect_bitcode_files "${search_root}" "irdumper"
 
-  if [[ ${bc_count} -gt 0 ]]; then
-    info "Linking ${bc_count} .bc files into vmlinux.bc..."
-    find "${output_dir}" -name '*.bc' ! -name 'vmlinux.bc' | \
-      xargs llvm-link -o "${output_dir}/vmlinux.bc" 2>/dev/null || \
-      warn "llvm-link failed"
+  if [[ ${#LAST_BITCODE_FILES[@]} -eq 0 ]]; then
+    warn "No LLVM bitcode modules were detected under: ${search_root}"
   fi
-
-  info "Collected ${bc_count} bitcode files in ${output_dir}"
 }
 
 # ============================================================
