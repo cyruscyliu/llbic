@@ -89,17 +89,14 @@ docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:mid 5.15 --clang 1
 docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:legacy 3.18 --clang 8
 ```
 
-## Build images
-
-```bash
-docker compose build llbic
-docker compose build llbic-mid
-docker compose build llbic-legacy
-```
-
 ## Local usage
 
 ```bash
+## build images
+docker compose build llbic
+docker compose build llbic-mid
+docker compose build llbic-legacy
+
 ./llbic 6.12
 ./llbic 6.12 --clang 18
 ./llbic 6.12 --output ./out
