@@ -9,6 +9,10 @@
   },
   "targets": [
     {
+      "kernel": "7.0-rc3",
+      "notes": "mainline (2026-03-08)"
+    },
+    {
       "kernel": "6.19.6",
       "notes": "stable (2026-03-04)"
     },
