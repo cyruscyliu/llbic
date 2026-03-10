@@ -17,8 +17,17 @@ if [[ -z "${LLBIC_NO_DOCKER:-}" ]] && command -v docker >/dev/null 2>&1; then
 
   if [[ "${in_container}" -eq 0 ]]; then
     image="${LLBIC_IMAGE:-ghcr.io/cyruscyliu/llbic:latest}"
+    dockerfile="${LLBIC_DOCKERFILE:-docker/Dockerfile}"
     host_root="$(pwd)"
     mkdir -p -- "${host_root}/out" "${host_root}/sources"
+
+    # Prefer a local image if present; otherwise build from the local repo.
+    if ! docker image inspect "${image}" >/dev/null 2>&1; then
+      if [[ ! -f "${host_root}/${dockerfile}" ]]; then
+        die "Docker image '${image}' not found locally, and Dockerfile not found: ${dockerfile}"
+      fi
+      docker build -f "${dockerfile}" -t "${image}" "${host_root}" >/dev/null
+    fi
 
     exec docker run --rm \
       --user "$(id -u):$(id -g)" \
