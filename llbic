@@ -31,13 +31,13 @@ if [[ -z "${LLBIC_NO_DOCKER:-}" ]] && command -v docker >/dev/null 2>&1; then
       idx=0
       while [[ ${idx} -lt ${#args[@]} ]]; do
         arg="${args[${idx}]}"
-        case "${arg}" in
-          --json) ((idx+=1)) ;;
-          --clang|-c|--output|-o) ((idx+=2)) ;; # skip flag + value
-          --) ((idx+=1)); break ;;
-          -*) ((idx+=1)) ;;
-          *) kernel_ver="${arg}"; break ;;
-        esac
+    case "${arg}" in
+      --json) ((idx+=1)) ;;
+      --clang|-c|--output|-o|--arch|-a|--cross|--defconfig) ((idx+=2)) ;; # skip flag + value
+      --) ((idx+=1)); break ;;
+      -*) ((idx+=1)) ;;
+      *) kernel_ver="${arg}"; break ;;
+    esac
       done
 
       major=""
@@ -123,6 +123,10 @@ LLBIC_CTX_CLANG=""
 LLBIC_CTX_LLVM_MAJOR=""
 LLBIC_CTX_STRATEGY=""
 LLBIC_CTX_BITCODE_ROOT=""
+LLBIC_CTX_ARCH=""
+LLBIC_CTX_CROSS_COMPILE=""
+LLBIC_CTX_DEFCONFIG="defconfig"
+LLBIC_CTX_BUILD_LAYOUT=""
 
 # --- Colors ---
 RED=$'\033[0;31m'
@@ -144,6 +148,26 @@ _require_one_line() {
   if [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* ]]; then
     die "${label} must be a single line"
   fi
+}
+
+_validate_arch() {
+  local arch="$1"
+  case "${arch}" in
+    x86_64|arm|arm64|mips|riscv) return 0 ;;
+    *) die "Invalid arch: '${arch}'. Use: x86_64, arm, arm64, mips, riscv" ;;
+  esac
+}
+
+_default_cross_for_arch() {
+  local arch="$1"
+  case "${arch}" in
+    arm64) echo "aarch64-linux-gnu-" ;;
+    arm)   echo "arm-linux-gnueabi-" ;;
+    mips)  echo "mipsel-linux-gnu-" ;;
+    riscv) echo "" ;;
+    x86_64) echo "" ;;
+    *) echo "" ;;
+  esac
 }
 
 _validate_kernel_version() {
@@ -418,6 +442,14 @@ _emit_result_json() {
   printf '"source_dir":"%s",' "$(_json_escape "${LAST_SOURCE_DIR}")"
   printf '"output_dir":"%s",' "$(_json_escape "${LAST_OUTPUT_DIR}")"
   printf '"log_file":"%s",' "$(_json_escape "${LAST_LOG_FILE}")"
+  printf '"arch":"%s",' "$(_json_escape "${LLBIC_CTX_ARCH:-}")"
+  if [[ -n "${LLBIC_CTX_CROSS_COMPILE:-}" ]]; then
+    printf '"cross_compile":"%s",' "$(_json_escape "${LLBIC_CTX_CROSS_COMPILE}")"
+  else
+    printf '"cross_compile":null,'
+  fi
+  printf '"defconfig":"%s",' "$(_json_escape "${LLBIC_CTX_DEFCONFIG:-defconfig}")"
+  printf '"build_layout":"%s",' "$(_json_escape "${LLBIC_CTX_BUILD_LAYOUT:-}")"
   if [[ -n "${LLBIC_CTX_BITCODE_ROOT:-}" ]]; then
     printf '"bitcode_root":"%s",' "$(_json_escape "${LLBIC_CTX_BITCODE_ROOT}")"
   else
@@ -554,6 +586,9 @@ cmd_build() {
   local clang_version=""
   local output_dir=""
   local build_layout="intree"
+  local arch="x86_64"
+  local cross_compile=""
+  local defconfig_target="defconfig"
   local saw_kernel_ver=0
 
   while [[ $# -gt 0 ]]; do
@@ -566,6 +601,18 @@ cmd_build() {
       --output|-o)
         [[ $# -ge 2 ]] || die "--output requires a value (example: --output ./out)"
         output_dir="$2"; shift 2
+        ;;
+      --arch|-a)
+        [[ $# -ge 2 ]] || die "--arch requires a value (example: --arch arm64)"
+        arch="$2"; shift 2
+        ;;
+      --cross)
+        [[ $# -ge 2 ]] || die "--cross requires a value (example: --cross aarch64-linux-gnu-)"
+        cross_compile="$2"; shift 2
+        ;;
+      --defconfig)
+        [[ $# -ge 2 ]] || die "--defconfig requires a value (example: --defconfig defconfig)"
+        defconfig_target="$2"; shift 2
         ;;
       --outtree|--out-of-tree) build_layout="outtree"; shift ;;
       --intree) build_layout="intree"; shift ;;
@@ -594,6 +641,10 @@ cmd_build() {
   _validate_kernel_version "${kernel_ver}"
   _validate_clang_version "${clang_version}"
   [[ -z "${output_dir}" ]] || _require_one_line "output dir" "${output_dir}"
+  _validate_arch "${arch}"
+  [[ -z "${cross_compile}" ]] && cross_compile="$(_default_cross_for_arch "${arch}")"
+  _require_one_line "cross compile" "${cross_compile}"
+  _require_one_line "defconfig" "${defconfig_target}"
 
   local kernel_name
   kernel_name="$(_normalize_kernel_name "${kernel_ver}")"
@@ -639,6 +690,10 @@ cmd_build() {
   LLBIC_CTX_LLVM_MAJOR=""
   LLBIC_CTX_STRATEGY=""
   LLBIC_CTX_BITCODE_ROOT=""
+  LLBIC_CTX_ARCH="${arch}"
+  LLBIC_CTX_CROSS_COMPILE="${cross_compile}"
+  LLBIC_CTX_DEFCONFIG="${defconfig_target}"
+  LLBIC_CTX_BUILD_LAYOUT="${build_layout}"
 
   # Always emit llbic.json, even on failures (non-zero exit).
   trap '_finalize_build_artifacts "$?"' EXIT
@@ -700,7 +755,7 @@ cmd_build() {
   local kbuild_dir=""
   if [[ "${build_layout}" == "outtree" ]]; then
     # Keep per-clang build dirs to avoid conflicts when switching toolchains.
-    kbuild_dir="${bc_output}/kbuild-clang${clang_version}"
+    kbuild_dir="${bc_output}/kbuild-${arch}-clang${clang_version}"
     mkdir -p -- "${kbuild_dir}"
     _log_step "compile.layout outtree=1 kbuild_dir=${kbuild_dir}"
     LLBIC_CTX_KBUILD_DIR="${kbuild_dir}"
@@ -718,12 +773,12 @@ cmd_build() {
     _log_step "compile.start strategy=lto kernel_version=${kver}"
     LLBIC_CTX_STRATEGY="lto"
     LLBIC_CTX_BITCODE_ROOT="${kbuild_dir:-${kernel_src}}"
-    _compile_lto "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${llvm_major}" "${kbuild_dir}"
+    _compile_lto "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${llvm_major}" "${kbuild_dir}" "${arch}" "${cross_compile}" "${defconfig_target}"
   else
     _log_step "compile.start strategy=irdumper kernel_version=${kver}"
     LLBIC_CTX_STRATEGY="irdumper"
     LLBIC_CTX_BITCODE_ROOT="${kbuild_dir:-${kernel_src}}"
-    _compile_irdumper "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${clang_version}" "${llvm_major}" "${kbuild_dir}"
+    _compile_irdumper "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${clang_version}" "${llvm_major}" "${kbuild_dir}" "${arch}" "${cross_compile}" "${defconfig_target}"
   fi
 
   echo "" >&2
@@ -879,19 +934,20 @@ cmd_compile() {
 # Compile strategies
 # ============================================================
 _compile_lto() {
-  local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" llvm_major="$5" kbuild_dir="${6:-}"
+  local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" llvm_major="$5" kbuild_dir="${6:-}" arch="${7:-x86_64}" cross_compile="${8:-}" defconfig_target="${9:-defconfig}"
   local -a make_extra=()
   if [[ -n "${kbuild_dir}" ]]; then
     make_extra+=(O="${kbuild_dir}")
   else
     info "In-tree build: cleaning (make clean)..."
-    make -C "${kernel_src}" clean > /dev/null 2>&1 || warn "make clean failed; continuing"
+    make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean > /dev/null 2>&1 || warn "make clean failed; continuing"
   fi
 
   info "Strategy: CONFIG_LTO_CLANG_FULL (native LTO)"
 
   info "Generating defconfig + LTO..."
-  make -C "${kernel_src}" "${make_extra[@]}" CC="${clang}" LLVM=1 defconfig -j"${NPROC}" > /dev/null 2>&1
+  make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    CC="${clang}" LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
 
   local config_path="${kernel_src}/.config"
   [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
@@ -902,13 +958,17 @@ _compile_lto() {
     --disable LTO_NONE \
     --disable MODVERSIONS
 
-  make -C "${kernel_src}" "${make_extra[@]}" CC="${clang}" LLVM=1 olddefconfig -j"${NPROC}" > /dev/null 2>&1
+  make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    CC="${clang}" LLVM=1 LLVM_IAS=1 olddefconfig -j"${NPROC}" > /dev/null 2>&1
 
   info "Compiling with ${clang} + full LTO..."
   make -C "${kernel_src}" \
     "${make_extra[@]}" \
+    ARCH="${arch}" \
+    ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
     CC="${clang}" \
     LLVM=1 \
+    LLVM_IAS=1 \
     -j"${NPROC}" \
     2>&1 | tee "${output_dir}/kernel-build.log"
 
@@ -924,13 +984,13 @@ _compile_lto() {
 }
 
 _compile_irdumper() {
-  local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" clang_version="$5" llvm_major="$6" kbuild_dir="${7:-}"
+  local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" clang_version="$5" llvm_major="$6" kbuild_dir="${7:-}" arch="${8:-x86_64}" cross_compile="${9:-}" defconfig_target="${10:-defconfig}"
   local -a make_extra=()
   if [[ -n "${kbuild_dir}" ]]; then
     make_extra+=(O="${kbuild_dir}")
   else
     info "In-tree build: cleaning (make clean)..."
-    make -C "${kernel_src}" clean > /dev/null 2>&1 || warn "make clean failed; continuing"
+    make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean > /dev/null 2>&1 || warn "make clean failed; continuing"
   fi
 
   info "Strategy: IRDumper pass plugin (fallback)"
@@ -955,7 +1015,8 @@ _compile_irdumper() {
   local marker="# --- IRDumper flags (auto-injected) ---"
 
   info "Generating defconfig..."
-  make -C "${kernel_src}" "${make_extra[@]}" CC="${clang}" LLVM=1 defconfig -j"${NPROC}" > /dev/null 2>&1
+  make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    CC="${clang}" LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
 
   if ! grep -qF "${marker}" "${kernel_makefile}"; then
     cat >> "${kernel_makefile}" <<EOF
@@ -969,8 +1030,11 @@ EOF
   info "Compiling with ${clang} + IRDumper..."
   make -C "${kernel_src}" \
     "${make_extra[@]}" \
+    ARCH="${arch}" \
+    ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
     CC="${clang}" \
     LLVM=1 \
+    LLVM_IAS=1 \
     -j"${NPROC}" \
     2>&1 | tee "${output_dir}/kernel-build.log"
 
@@ -1055,13 +1119,14 @@ cmd_help() {
 ${BOLD}llbic${NC} — Compile Linux kernels to LLVM bitcode
 
 ${BOLD}Usage:${NC}
-  llbic <version> [--clang VER] [--output DIR] [--json] [--outtree|--intree]
-  llbic --json <version> [--clang VER] [--output DIR] [--outtree|--intree]
+  llbic <version> [--clang VER] [--arch ARCH] [--cross PREFIX] [--defconfig TARGET] [--output DIR] [--json] [--outtree|--intree]
+  llbic --json <version> [--clang VER] [--arch ARCH] [--cross PREFIX] [--defconfig TARGET] [--output DIR] [--outtree|--intree]
                                        One-shot: download, extract, compile
 
 ${BOLD}Examples:${NC}
   llbic 6.12                          # compile kernel 6.12 to bitcode
   llbic 6.12 --clang 18               # use clang-18
+  llbic 6.12 --arch arm64             # build for ARM64
   llbic 6.12 -c 18 -o /tmp/out        # output to a custom directory
   llbic 6.12 --json                   # print JSON summary to stdout (also writes llbic.json)
   llbic 6.12 --outtree                # out-of-tree build (avoids toolchain conflicts)
@@ -1069,6 +1134,11 @@ ${BOLD}Examples:${NC}
 ${BOLD}Build layout:${NC}
   --outtree, --out-of-tree            Build with O=<out dir> (recommended)
   --intree                            Build in the source tree (default; runs make clean)
+
+${BOLD}Architecture:${NC}
+  --arch, -a ARCH                     x86_64 (default), arm, arm64, mips, riscv
+  --cross PREFIX                      CROSS_COMPILE prefix (defaults per arch when known)
+  --defconfig TARGET                  Kbuild config target (default: defconfig)
 
 ${BOLD}Docker:${NC}
   docker run --rm -v \$(pwd)/out:/out ghcr.io/cyruscyliu/llbic:latest 6.12

@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       gcc-arm-linux-gnueabi \
       gcc-aarch64-linux-gnu \
       gcc-mipsel-linux-gnu \
+      gcc-riscv64-linux-gnu \
       # Version control & misc
       git \
       xz-utils \

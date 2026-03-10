@@ -71,6 +71,7 @@ class Target:
     layout: str
     image: str
     clang: str
+    arch: str
     output: str | None
     timeout_sec: int
     notes: str
@@ -93,6 +94,7 @@ def load_matrix(path: Path) -> tuple[dict[str, Any], list[Target]]:
         layout = str(t.get("layout", get_default("layout", "outtree")))
         image = str(t.get("image", get_default("image", "auto")))
         clang = str(t.get("clang", get_default("clang", "auto")))
+        arch = str(t.get("arch", get_default("arch", "x86_64")))
         output = t.get("output", get_default("output", None))
         timeout_sec = int(t.get("timeout_sec", get_default("timeout_sec", 14400)))
         notes = str(t.get("notes", ""))
@@ -102,6 +104,7 @@ def load_matrix(path: Path) -> tuple[dict[str, Any], list[Target]]:
                 layout=layout,
                 image=image,
                 clang=clang,
+                arch=arch,
                 output=output,
                 timeout_sec=timeout_sec,
                 notes=notes,
@@ -119,6 +122,8 @@ def build_llbic_cmd(t: Target) -> list[str]:
         cmd.append("--intree")
     else:
         raise RuntimeError(f"unknown layout: {t.layout}")
+
+    cmd += ["--arch", t.arch]
 
     if t.clang != "auto":
         cmd += ["--clang", t.clang]
@@ -156,17 +161,18 @@ def render_status_md(status: dict[str, Any]) -> str:
     lines.append(f"- Generated: `{meta['generated_at']}`")
     lines.append(f"- Git SHA: `{meta['git_sha']}`")
     lines.append("")
-    lines.append("| Kernel | Result | Image | Clang | Layout | Bitcode | Notes |")
-    lines.append("|---|---|---|---|---|---:|---|")
+    lines.append("| Kernel | Arch | Result | Image | Clang | Layout | Bitcode | Notes |")
+    lines.append("|---|---|---|---|---|---|---:|---|")
     for row in status["rows"]:
         kernel = row["kernel"]
+        arch = row.get("arch", "")
         result = row["result"]
         image = row.get("image_effective", "")
         clang = row.get("clang_effective", "")
         layout = row.get("layout", "")
         bitcode_count = row.get("bitcode_count", 0)
         notes = row.get("notes", "")
-        lines.append(f"| `{kernel}` | **{result}** | `{image}` | `{clang}` | `{layout}` | {bitcode_count} | {notes} |")
+        lines.append(f"| `{kernel}` | `{arch}` | **{result}** | `{image}` | `{clang}` | `{layout}` | {bitcode_count} | {notes} |")
     lines.append("")
     lines.append("Result definition:")
     lines.append("- pass: build completed and produced at least one LLVM bitcode module")
@@ -273,6 +279,7 @@ def main() -> int:
 
         row: dict[str, Any] = {
             "kernel": t.kernel,
+            "arch": t.arch,
             "layout": t.layout,
             "image": t.image,
             "image_effective": image_effective,
