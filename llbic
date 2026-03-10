@@ -32,6 +32,57 @@ die()   { error "$@"; exit 1; }
 # ============================================================
 # Helpers
 # ============================================================
+_require_one_line() {
+  local label="$1" value="${2:-}"
+  if [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* ]]; then
+    die "${label} must be a single line"
+  fi
+}
+
+_validate_kernel_version() {
+  local ver="$1"
+  _require_one_line "kernel version" "${ver}"
+
+  # Version is used in:
+  # - filenames/dirs (linux-${ver}.tar.xz, sources/linux-${ver}/)
+  # - kernel.org URL construction
+  #
+  # So we allow broad "kernel-like" strings but forbid path traversal, whitespace,
+  # and characters that could be interpreted by tools or the filesystem.
+  #
+  # Examples allowed: 6.12, 2.6.32.71, 6.12-rc1, 6.1.0-rt11, 6.9.0-next-20240510
+  if [[ -z "${ver}" ]]; then
+    die "Kernel version required. Example: llbic 6.12"
+  fi
+  if [[ ${#ver} -gt 128 ]]; then
+    die "Kernel version is too long (${#ver} > 128): '${ver}'"
+  fi
+  if [[ "${ver}" == *".."* ]]; then
+    die "Invalid kernel version (path traversal not allowed): '${ver}'"
+  fi
+  if [[ "${ver}" =~ [[:space:]] ]]; then
+    die "Invalid kernel version (whitespace not allowed): '${ver}'"
+  fi
+  if [[ "${ver}" == *"/"* || "${ver}" == *"\\"* ]]; then
+    die "Invalid kernel version (slashes not allowed): '${ver}'"
+  fi
+  if [[ ! "${ver}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
+    die "Invalid kernel version: '${ver}'. Allowed chars: A-Z a-z 0-9 . _ + -"
+  fi
+}
+
+_validate_clang_version() {
+  local ver="${1:-}"
+  [[ -n "${ver}" ]] || return 0
+  _require_one_line "clang version" "${ver}"
+
+  # This value becomes part of the compiler command (CC=clang-<ver>).
+  # Only allow numeric versions like: 18, 6.0
+  if [[ ! "${ver}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    die "Invalid clang version: '${ver}'. Expected like: 18"
+  fi
+}
+
 _version_ge() {
   printf '%s\n%s' "$2" "$1" | sort -V -C
 }
@@ -186,20 +237,44 @@ cmd_build() {
   local kernel_ver=""
   local clang_version=""
   local output_dir=""
+  local saw_kernel_ver=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --clang|-c)  clang_version="$2"; shift 2 ;;
+      --clang|-c)
+        [[ $# -ge 2 ]] || die "--clang requires a value (example: --clang 18)"
+        clang_version="$2"; shift 2
+        ;;
       --json)      JSON_OUTPUT=1; shift ;;
-      --output|-o) output_dir="$2"; shift 2 ;;
-      --help|-h)   echo "Usage: llbic build <VERSION> [--clang VER] [--output DIR] [--json]"; exit 0 ;;
-      *)           kernel_ver="$1"; shift ;;
+      --output|-o)
+        [[ $# -ge 2 ]] || die "--output requires a value (example: --output ./out)"
+        output_dir="$2"; shift 2
+        ;;
+      --help|-h)   echo "Usage: llbic <VERSION> [--clang VER] [--output DIR] [--json]"; exit 0 ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        die "Unknown option: $1"
+        ;;
+      *)
+        if [[ ${saw_kernel_ver} -eq 1 ]]; then
+          die "Too many positional arguments. Expected a single kernel version like: 6.12"
+        fi
+        kernel_ver="$1"
+        saw_kernel_ver=1
+        shift
+        ;;
     esac
   done
 
-  [[ -n "${kernel_ver}" ]] || die "Kernel version required. Example: llbic build 6.12"
+  [[ -n "${kernel_ver}" ]] || die "Kernel version required. Example: llbic 6.12"
 
   kernel_ver="${kernel_ver#linux-}"
+  _validate_kernel_version "${kernel_ver}"
+  _validate_clang_version "${clang_version}"
+  [[ -z "${output_dir}" ]] || _require_one_line "output dir" "${output_dir}"
 
   local kernel_name
   kernel_name="$(_normalize_kernel_name "${kernel_ver}")"
@@ -215,8 +290,8 @@ cmd_build() {
   LAST_LOG_FILE="${bc_output}/llbic.log"
   LOG_FILE="${LAST_LOG_FILE}"
 
-  mkdir -p "${SOURCES_DIR}" "${build_root}"
-  mkdir -p "${bc_output}"
+  mkdir -p -- "${SOURCES_DIR}" "${build_root}"
+  mkdir -p -- "${bc_output}"
   : > "${LOG_FILE}"
   _log_step "build.start kernel=${kernel_name} source_url=${url} output_dir=${bc_output}"
 
@@ -585,10 +660,10 @@ cmd_clean() {
 
   case "${target}" in
     build)
-      [[ -d "${BUILD_DIR}" ]] && rm -rf "${BUILD_DIR}" && info "Removed ${BUILD_DIR}" || info "Nothing to clean."
+      [[ -d "${BUILD_DIR}" ]] && rm -rf -- "${BUILD_DIR}" && info "Removed ${BUILD_DIR}" || info "Nothing to clean."
       ;;
     sources)
-      [[ -d "${SOURCES_DIR}" ]] && rm -rf "${SOURCES_DIR}" && info "Removed ${SOURCES_DIR}" || info "Nothing to clean."
+      [[ -d "${SOURCES_DIR}" ]] && rm -rf -- "${SOURCES_DIR}" && info "Removed ${SOURCES_DIR}" || info "Nothing to clean."
       ;;
     all) cmd_clean build; cmd_clean sources ;;
     *)   die "Unknown target: ${target}. Use: build, sources, all" ;;
@@ -604,22 +679,14 @@ ${BOLD}llbic${NC} — Compile Linux kernels to LLVM bitcode
 
 ${BOLD}Usage:${NC}
   llbic <version> [--clang VER] [--output DIR] [--json]
+  llbic --json <version> [--clang VER] [--output DIR]
                                        One-shot: download, extract, compile
-  llbic <command> [options]           Individual steps
 
 ${BOLD}Examples:${NC}
   llbic 6.12                          # compile kernel 6.12 to bitcode
   llbic 6.12 --clang 18               # use clang-18
   llbic 6.12 -c 18 -o /tmp/out        # output to a custom directory
   llbic 6.12 --json                   # emit machine-readable build metadata
-
-${BOLD}Commands:${NC}
-  build <VER>           Download + extract + compile (same as llbic <VER>)
-  compile [KERNEL]      Compile already-extracted kernel(s)
-  download [VER|URL]    Download sources directly or from sources.conf
-  extract               Decompress archives
-  list                  Show available kernels and bitcode
-  clean [TARGET]        Remove artifacts (build|sources|all)
 
 ${BOLD}Docker:${NC}
   docker run --rm -v \$(pwd)/out:/out ghcr.io/cyruscyliu/llbic:latest 6.12
@@ -641,17 +708,18 @@ main() {
   shift || true
 
   case "${cmd}" in
-    build)     cmd_build "$@" ;;
-    compile)   cmd_compile "$@" ;;
-    download)  cmd_download "$@" ;;
-    extract)   cmd_extract "$@" ;;
-    list)      cmd_list "$@" ;;
-    clean)     cmd_clean "$@" ;;
     version|--version|-v) echo "llbic ${VERSION}" ;;
     help|--help|-h)       cmd_help ;;
-    # If it looks like a version number, treat as "build <version>"
-    [0-9]*)    cmd_build "${cmd}" "$@" ;;
-    *)         error "Unknown command: ${cmd}"; echo ""; cmd_help; exit 1 ;;
+    # Treat any non-option token as the kernel version.
+    -*)
+      error "Unknown option: ${cmd}"
+      echo ""
+      cmd_help
+      exit 1
+      ;;
+    *)
+      cmd_build "${cmd}" "$@"
+      ;;
   esac
 }
 
