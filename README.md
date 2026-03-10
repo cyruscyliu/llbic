@@ -3,7 +3,6 @@
 Compile Linux kernels to source code, LLVM bitcode, and kernel images with one
 stable command.
 
-[![Docker Publish](https://github.com/cyruscyliu/llbic/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/cyruscyliu/llbic/actions/workflows/docker-publish.yml)
 [![Container Registry](https://img.shields.io/badge/ghcr.io-llbic-blue)](https://github.com/cyruscyliu/llbic/pkgs/container/llbic)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
