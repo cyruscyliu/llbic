@@ -104,6 +104,7 @@ LAST_VMLINUX_BC=""
 LAST_LOG_FILE=""
 LAST_KERNEL_IMAGES=()
 LAST_BITCODE_FILES=()
+LAST_BITCODE_FILES_REL=()
 LOG_FILE=""
 
 # --- Colors ---
@@ -240,10 +241,14 @@ _json_array() {
 _collect_bitcode_files() {
   local output_dir="$1"
   LAST_BITCODE_FILES=()
+  LAST_BITCODE_FILES_REL=()
   [[ -d "${output_dir}" ]] || return 0
 
   while IFS= read -r file; do
     LAST_BITCODE_FILES+=("${file}")
+    # Relative to output_dir for machine portability.
+    local rel="${file#${output_dir%/}/}"
+    LAST_BITCODE_FILES_REL+=("${rel}")
   done < <(find "${output_dir}" -maxdepth 1 -type f -name '*.bc' | sort)
 
   if [[ -f "${output_dir}/vmlinux.bc" ]]; then
@@ -251,6 +256,14 @@ _collect_bitcode_files() {
   else
     LAST_VMLINUX_BC=""
   fi
+}
+
+_write_bitcode_list_file() {
+  local output_dir="$1"
+  local list_file="$2"
+  mkdir -p -- "$(dirname "${list_file}")"
+  # One relative path per line, stable order.
+  (cd "${output_dir}" && find . -maxdepth 1 -type f -name '*.bc' -printf '%P\n' | sort) > "${list_file}"
 }
 
 _collect_kernel_images() {
@@ -311,6 +324,9 @@ _emit_build_json() {
   printf '"llvm_major":"%s",' "$(_json_escape "${llvm_major}")"
   printf '"bitcode_files":'
   _json_array LAST_BITCODE_FILES
+  printf ','
+  printf '"bitcode_files_rel":'
+  _json_array LAST_BITCODE_FILES_REL
   printf ','
   printf '"bitcode_count":%s,' "${#LAST_BITCODE_FILES[@]}"
   if [[ -n "${LAST_VMLINUX_BC}" ]]; then
@@ -471,6 +487,9 @@ cmd_build() {
   info "Done. Output: ${bc_output}/"
   [[ -f "${bc_output}/vmlinux.bc" ]] && info "vmlinux.bc: ${bc_output}/vmlinux.bc"
   _collect_bitcode_files "${bc_output}"
+  local bc_list_file="${bc_output}/bitcode_files.txt"
+  _write_bitcode_list_file "${bc_output}" "${bc_list_file}"
+  _log_step "bitcode_list.write path=${bc_list_file}"
   _collect_kernel_images "${kernel_src}" "${kbuild_dir}"
   _log_step "compile.done bitcode_count=${#LAST_BITCODE_FILES[@]}"
   if [[ ${#LAST_KERNEL_IMAGES[@]} -gt 0 ]]; then
