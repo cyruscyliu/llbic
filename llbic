@@ -1,11 +1,45 @@
 #!/usr/bin/env bash
+
+# This repository is intended to be run inside the provided Docker images.
+# When invoked on a host with Docker available, re-exec ourselves in a container.
+#
+# Bypass with: LLBIC_NO_DOCKER=1 ./llbic ...
+if [[ -z "${LLBIC_NO_DOCKER:-}" ]] && command -v docker >/dev/null 2>&1; then
+  in_container=0
+  [[ -f "/.dockerenv" ]] && in_container=1
+  if [[ "${in_container}" -eq 0 ]] && [[ -r /proc/1/cgroup ]]; then
+    if grep -qF "docker" /proc/1/cgroup 2>/dev/null || \
+       grep -qF "containerd" /proc/1/cgroup 2>/dev/null || \
+       grep -qF "kubepods" /proc/1/cgroup 2>/dev/null; then
+      in_container=1
+    fi
+  fi
+
+  if [[ "${in_container}" -eq 0 ]]; then
+    image="${LLBIC_IMAGE:-ghcr.io/cyruscyliu/llbic:latest}"
+    host_root="$(pwd)"
+    mkdir -p -- "${host_root}/out" "${host_root}/sources"
+
+    exec docker run --rm \
+      --user "$(id -u):$(id -g)" \
+      -e HOME=/tmp \
+      -e LLBIC_SOURCES=/work/sources \
+      -e LLBIC_CONF=/work/sources.conf \
+      -v "${host_root}:/work" \
+      -w /work \
+      -v "${host_root}/out:/out" \
+      "${image}" "$@"
+  fi
+fi
+
 set -euo pipefail
 
 VERSION="0.1.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SOURCES_DIR="${LLBIC_SOURCES:-${SCRIPT_DIR}/sources}"
-BUILD_DIR="${LLBIC_OUTPUT:-${SCRIPT_DIR}/build}"
-CONF_FILE="${SCRIPT_DIR}/sources.conf"
+ROOT_DIR="${LLBIC_ROOT:-$PWD}"
+SOURCES_DIR="${LLBIC_SOURCES:-${ROOT_DIR}/sources}"
+BUILD_DIR="${LLBIC_OUTPUT:-${ROOT_DIR}/build}"
+CONF_FILE="${LLBIC_CONF:-${ROOT_DIR}/sources.conf}"
 NPROC="${NPROC:-$(nproc)}"
 JSON_OUTPUT=0
 LAST_SOURCE_URL=""
