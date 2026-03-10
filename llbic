@@ -204,9 +204,46 @@ _resolve_clang() {
 }
 
 _kernel_url() {
+  # Backwards compatible: first candidate URL.
+  _kernel_urls "$1" | head -n 1
+}
+
+_kernel_urls() {
   local ver="$1"
-  local major="${ver%%.*}"
-  echo "https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${ver}.tar.xz"
+  ver="${ver#linux-}"
+
+  local major=""
+  if [[ "${ver}" =~ ^([0-9]+)\. ]]; then
+    major="${BASH_REMATCH[1]}"
+  elif [[ "${ver}" =~ ^([0-9]+)$ ]]; then
+    major="${BASH_REMATCH[1]}"
+  fi
+
+  local -a urls=()
+
+  # For -rc releases, kernel.org places tarballs under .../testing/.
+  if [[ -n "${major}" && "${ver}" == *"-rc"* ]]; then
+    urls+=("https://cdn.kernel.org/pub/linux/kernel/v${major}.x/testing/linux-${ver}.tar.xz")
+    urls+=("https://cdn.kernel.org/pub/linux/kernel/v${major}.x/testing/linux-${ver}.tar.gz")
+  fi
+
+  # Normal stable/longterm tarballs.
+  if [[ -n "${major}" ]]; then
+    urls+=("https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${ver}.tar.xz")
+    urls+=("https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${ver}.tar.gz")
+  fi
+
+  # Fallback: git.kernel.org snapshot tarball (works for rc tags).
+  urls+=("https://git.kernel.org/torvalds/t/linux-${ver}.tar.gz")
+
+  # De-duplicate while preserving order.
+  local u
+  local -A seen=()
+  for u in "${urls[@]}"; do
+    [[ -n "${seen["${u}"]:-}" ]] && continue
+    seen["${u}"]=1
+    echo "${u}"
+  done
 }
 
 _normalize_kernel_name() {
@@ -498,6 +535,17 @@ _download_file() {
   fi
 }
 
+_tarball_path_for_url() {
+  local kernel_name="$1" url="$2"
+  local ext="tar.xz"
+  if [[ "${url}" == *.tar.gz ]]; then
+    ext="tar.gz"
+  elif [[ "${url}" == *.tar.xz ]]; then
+    ext="tar.xz"
+  fi
+  echo "${SOURCES_DIR}/${kernel_name}.${ext}"
+}
+
 # ============================================================
 # build — one-shot: download + extract + compile
 # ============================================================
@@ -549,10 +597,21 @@ cmd_build() {
 
   local kernel_name
   kernel_name="$(_normalize_kernel_name "${kernel_ver}")"
-  local url
-  url="$(_kernel_url "${kernel_ver}")"
+  local url=""
+  local -a urls=()
+  mapfile -t urls < <(_kernel_urls "${kernel_ver}")
+  [[ ${#urls[@]} -gt 0 ]] || die "No download URL candidates for kernel version: ${kernel_ver}"
+  url="${urls[0]}"
   LAST_SOURCE_URL="${url}"
-  local tarball="${SOURCES_DIR}/${kernel_name}.tar.xz"
+
+  local tarball=""
+  if [[ -f "${SOURCES_DIR}/${kernel_name}.tar.xz" ]]; then
+    tarball="${SOURCES_DIR}/${kernel_name}.tar.xz"
+  elif [[ -f "${SOURCES_DIR}/${kernel_name}.tar.gz" ]]; then
+    tarball="${SOURCES_DIR}/${kernel_name}.tar.gz"
+  else
+    tarball="$(_tarball_path_for_url "${kernel_name}" "${url}")"
+  fi
   local kernel_src="${SOURCES_DIR}/${kernel_name}"
   local build_root="${output_dir:-$(_default_output_dir)}"
   local bc_output="${build_root}/${kernel_name}"
@@ -591,7 +650,7 @@ cmd_build() {
   if [[ -d "${kernel_src}" ]]; then
     info "Source exists: ${kernel_name}"
     _log_step "source.reuse path=${kernel_src}"
-  elif [[ -f "${tarball}" ]]; then
+  elif [[ -n "${tarball}" && -f "${tarball}" ]]; then
     info "Tarball exists, extracting..."
     _log_step "download.skip_tarball path=${tarball}"
     _log_step "extract.start tarball=${tarball}"
@@ -599,9 +658,24 @@ cmd_build() {
     _log_step "extract.done source_dir=${kernel_src}"
   else
     info "Downloading ${kernel_name}..."
-    _log_step "download.start url=${url} dest=${tarball}"
-    _download_file "${url}" "${tarball}"
-    _log_step "download.done tarball=${tarball}"
+    local selected_url=""
+    local selected_tarball=""
+    local candidate
+    for candidate in "${urls[@]}"; do
+      local dest
+      dest="$(_tarball_path_for_url "${kernel_name}" "${candidate}")"
+      _log_step "download.try url=${candidate} dest=${dest}"
+      if _download_file "${candidate}" "${dest}"; then
+        selected_url="${candidate}"
+        selected_tarball="${dest}"
+        break
+      fi
+    done
+    [[ -n "${selected_url}" ]] || die "Download failed for all candidate URLs (see llbic.log)"
+    url="${selected_url}"
+    tarball="${selected_tarball}"
+    LAST_SOURCE_URL="${url}"
+    _log_step "download.done url=${url} tarball=${tarball}"
     info "Extracting..."
     _log_step "extract.start tarball=${tarball}"
     tar -xf "${tarball}" -C "${SOURCES_DIR}"
