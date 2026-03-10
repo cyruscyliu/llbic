@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM ubuntu:20.04
 
 USER root
 
@@ -25,36 +25,45 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       # Python
       python3 \
       python3-pip \
-      python3-venv \
       # Kernel build tools
       cpio \
       kmod \
       rsync \
       dwarves \
-      debhelper \
       # Cross-compilation toolchains
       crossbuild-essential-armel \
-      crossbuild-essential-arm64 \
       gcc-arm-linux-gnueabi \
-      gcc-aarch64-linux-gnu \
       gcc-mipsel-linux-gnu \
       # Version control & misc
       git \
       xz-utils \
-      lz4 \
       gawk \
       && rm -rf /var/lib/apt/lists/*
 
-# Install Clang/LLVM versions (all from Ubuntu 24.04 default repos)
+# Install GCC versions (all from Ubuntu 20.04 default repos)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      clang-14 llvm-14 lld-14 llvm-14-dev \
-      clang-15 llvm-15 lld-15 llvm-15-dev \
-      clang-16 llvm-16 lld-16 llvm-16-dev \
-      clang-18 llvm-18 lld-18 llvm-18-dev \
+      gcc-7 g++-7 \
+      gcc-8 g++-8 \
+      gcc-10 g++-10 \
       && rm -rf /var/lib/apt/lists/*
 
+# Install Clang/LLVM versions (all from Ubuntu 20.04 default repos)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      clang-8 llvm-8 lld-8 llvm-8-dev \
+      clang-9 llvm-9 lld-9 llvm-9-dev \
+      clang-10 llvm-10 lld-10 llvm-10-dev \
+      clang-11 llvm-11 lld-11 llvm-11-dev \
+      clang-12 llvm-12 lld-12 llvm-12-dev \
+      && rm -rf /var/lib/apt/lists/*
+
+# Register GCC alternatives (GCC 9 is default via build-essential)
+RUN for v in 7 8 9 10; do \
+      update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${v} ${v}0 \
+        --slave /usr/bin/g++ g++ /usr/bin/g++-${v}; \
+    done
+
 # Register Clang/LLVM alternatives
-RUN for v in 14 15 16 18; do \
+RUN for v in 8 9 10 11 12; do \
       update-alternatives --install /usr/bin/clang clang /usr/bin/clang-${v} ${v}0 \
         --slave /usr/bin/clang++ clang++ /usr/bin/clang++-${v} \
         --slave /usr/bin/llvm-config llvm-config /usr/bin/llvm-config-${v} \
@@ -65,8 +74,8 @@ RUN for v in 14 15 16 18; do \
         --slave /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-${v}; \
     done
 
-RUN python3 -m pip install --break-system-packages \
-      networkx \
-      graphviz
+RUN python3 -m pip install --upgrade pip && \
+      pip3 install networkx graphviz && \
+      ln -sf /usr/bin/python3 /usr/bin/python
 
 WORKDIR /root/llbic
