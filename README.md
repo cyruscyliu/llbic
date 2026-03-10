@@ -12,10 +12,10 @@ that need stable kernel artifacts instead of ad hoc scripts.
 
 ## Quick start
 
-Docker is the default workflow:
+Run the local wrapper:
 
 ```bash
-docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:latest 6.12
+./llbic 6.12
 ```
 
 This downloads the kernel source, builds it, and writes output to:
@@ -28,23 +28,27 @@ out/linux-6.12/
   bitcode_files.txt
 ```
 
+`./llbic` will run inside Docker when Docker is available, and will build the
+local image if it is missing. Use `LLBIC_REBUILD=1` to force rebuilding the
+image.
+
 Use `--clang` to pick a toolchain:
 
 ```bash
-docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:latest 6.12 --clang 18
+./llbic 6.12 --clang 18
 ```
 
 Use `--arch` (and optionally `--cross`) to build for another architecture:
 
 ```bash
-docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:latest 6.12 --arch arm64
-docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:latest 6.12 --arch arm --cross arm-linux-gnueabi-
+./llbic 6.12 --arch arm64
+./llbic 6.12 --arch arm --cross arm-linux-gnueabi-
 ```
 
 For agents, use JSON output:
 
 ```bash
-docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:latest 6.12 --json
+./llbic --json 6.12
 ```
 
 What you get from one run:
@@ -58,6 +62,10 @@ What you get from one run:
 - Optional JSON output for agents
 
 Example response:
+
+Note: when `./llbic` runs inside Docker, the JSON paths are container paths (for
+example `/out/...` and `/work/...`). On the host, these correspond to
+`./out/...` and the repo directory.
 
 ```json
 {
@@ -90,38 +98,7 @@ Example response:
 }
 ```
 
-## Images
-
-Use the image that matches the kernel era:
-
-| Image | Kernels | Clang |
-|---|---|---|
-| `ghcr.io/cyruscyliu/llbic:latest` | 6.x, 7.x | 14, 15, 16, 18 |
-| `ghcr.io/cyruscyliu/llbic:mid` | 4.x, 5.x | 8, 9, 10, 11, 12 |
-| `ghcr.io/cyruscyliu/llbic:legacy` | 2.6, 3.x | 6.0, 7, 8 |
-
-Examples:
-
-```bash
-docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:latest 6.12
-docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:mid 5.15 --clang 12
-docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:legacy 3.18 --clang 8
-```
-
-## Local usage
-
-`./llbic` runs inside Docker and will build the local image if it is missing.
-Use `LLBIC_REBUILD=1` to force rebuilding the image.
-
-```bash
-./llbic 6.12
-./llbic 6.12 --out-of-tree
-./llbic 6.12 --clang 18
-./llbic 6.12 --output ./out
-./llbic --json 6.12
-./llbic 6.12 --arch arm64
-./llbic 6.12 --arch riscv
-```
+## Usage
 
 `--out-of-tree` builds with `make O=<dir>` so the build output lives outside the
 extracted source tree. This avoids conflicts when rebuilding the same kernel
@@ -139,7 +116,13 @@ with `--output`):
 Note: `kernel/time/timeconst.bc` in the Linux source tree is an input for the `bc`
 calculator (used to generate `include/generated/timeconst.h`), not LLVM bitcode.
 
-## Architecture & Config
+Different images serve different kernel era:
+
+| Image | Kernels | Clang |
+|---|---|---|
+| `ghcr.io/cyruscyliu/llbic:latest` | 6.x, 7.x | 14, 15, 16, 18 |
+| `ghcr.io/cyruscyliu/llbic:mid` | 4.x, 5.x | 8, 9, 10, 11, 12 |
+| `ghcr.io/cyruscyliu/llbic:legacy` | 2.6, 3.x | 6.0, 7, 8 |
 
 Flags:
 
