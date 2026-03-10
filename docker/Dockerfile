@@ -63,6 +63,16 @@ RUN for v in 14 15 16 18; do \
         --slave /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-${v}; \
     done
 
+# Build IRDumper for each LLVM version
+COPY IRDumper /tmp/IRDumper
+RUN for v in 14 15 16 18; do \
+      update-alternatives --set clang /usr/bin/clang-${v} \
+      && make -C /tmp/IRDumper clean dumper \
+      && mkdir -p /opt/IRDumper/${v} \
+      && cp /tmp/IRDumper/build/lib/libDumper.so /opt/IRDumper/${v}/ ; \
+    done \
+    && rm -rf /tmp/IRDumper
+
 RUN python3 -m pip install --break-system-packages \
       networkx \
       graphviz
