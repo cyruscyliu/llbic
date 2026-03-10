@@ -128,6 +128,12 @@ LLBIC_CTX_CROSS_COMPILE=""
 LLBIC_CTX_DEFCONFIG="defconfig"
 LLBIC_CTX_BUILD_LAYOUT=""
 LLBIC_CTX_KCONFIG_FRAGMENTS=()
+LLBIC_CTX_CONFIG_PATH=""
+LLBIC_CTX_CONFIG_SHA256=""
+LLBIC_CTX_ARCH_IS_DEFAULT=1
+LLBIC_CTX_CROSS_IS_DEFAULT=1
+LLBIC_CTX_DEFCONFIG_IS_DEFAULT=1
+LLBIC_CTX_LAYOUT_IS_DEFAULT=1
 
 # --- Colors ---
 RED=$'\033[0;31m'
@@ -178,6 +184,18 @@ _normalize_path_for_json() {
     echo "${p#${ROOT_DIR%/}/}"
   else
     echo "${p}"
+  fi
+}
+
+_sha256_file() {
+  local p="$1"
+  [[ -f "${p}" ]] || return 0
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${p}" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${p}" | awk '{print $1}'
+  else
+    echo ""
   fi
 }
 
@@ -498,17 +516,42 @@ _emit_result_json() {
   printf '"source_dir":"%s",' "$(_json_escape "${LAST_SOURCE_DIR}")"
   printf '"output_dir":"%s",' "$(_json_escape "${LAST_OUTPUT_DIR}")"
   printf '"log_file":"%s",' "$(_json_escape "${LAST_LOG_FILE}")"
+  if [[ -n "${LLBIC_CTX_STRATEGY:-}" ]]; then
+    printf '"strategy":"%s",' "$(_json_escape "${LLBIC_CTX_STRATEGY}")"
+  else
+    printf '"strategy":null,'
+  fi
   printf '"arch":"%s",' "$(_json_escape "${LLBIC_CTX_ARCH:-}")"
+  printf '"arch_is_default":%s,' "${LLBIC_CTX_ARCH_IS_DEFAULT:-1}"
   if [[ -n "${LLBIC_CTX_CROSS_COMPILE:-}" ]]; then
     printf '"cross_compile":"%s",' "$(_json_escape "${LLBIC_CTX_CROSS_COMPILE}")"
   else
     printf '"cross_compile":null,'
   fi
+  printf '"cross_compile_is_default":%s,' "${LLBIC_CTX_CROSS_IS_DEFAULT:-1}"
   printf '"defconfig":"%s",' "$(_json_escape "${LLBIC_CTX_DEFCONFIG:-defconfig}")"
+  printf '"defconfig_is_default":%s,' "${LLBIC_CTX_DEFCONFIG_IS_DEFAULT:-1}"
   printf '"build_layout":"%s",' "$(_json_escape "${LLBIC_CTX_BUILD_LAYOUT:-}")"
+  printf '"build_layout_is_default":%s,' "${LLBIC_CTX_LAYOUT_IS_DEFAULT:-1}"
   printf '"kconfig_fragments":'
   _json_array LLBIC_CTX_KCONFIG_FRAGMENTS
   printf ','
+  printf '"kconfig_fragments_count":%s,' "${#LLBIC_CTX_KCONFIG_FRAGMENTS[@]}"
+  if [[ -n "${LLBIC_CTX_KBUILD_DIR:-}" ]]; then
+    printf '"kbuild_dir":"%s",' "$(_json_escape "${LLBIC_CTX_KBUILD_DIR}")"
+  else
+    printf '"kbuild_dir":null,'
+  fi
+  if [[ -n "${LLBIC_CTX_CONFIG_PATH:-}" ]]; then
+    printf '"config_path":"%s",' "$(_json_escape "${LLBIC_CTX_CONFIG_PATH}")"
+  else
+    printf '"config_path":null,'
+  fi
+  if [[ -n "${LLBIC_CTX_CONFIG_SHA256:-}" ]]; then
+    printf '"config_sha256":"%s",' "$(_json_escape "${LLBIC_CTX_CONFIG_SHA256}")"
+  else
+    printf '"config_sha256":null,'
+  fi
   if [[ -n "${LLBIC_CTX_BITCODE_ROOT:-}" ]]; then
     printf '"bitcode_root":"%s",' "$(_json_escape "${LLBIC_CTX_BITCODE_ROOT}")"
   else
@@ -649,6 +692,10 @@ cmd_build() {
   local cross_compile=""
   local defconfig_target="defconfig"
   local -a kconfig_fragments=()
+  local arch_set=0
+  local cross_set=0
+  local defconfig_set=0
+  local layout_set=0
   local saw_kernel_ver=0
 
   while [[ $# -gt 0 ]]; do
@@ -664,22 +711,25 @@ cmd_build() {
         ;;
       --arch|-a)
         [[ $# -ge 2 ]] || die "--arch requires a value (example: --arch arm64)"
+        arch_set=1
         arch="$2"; shift 2
         ;;
       --cross)
         [[ $# -ge 2 ]] || die "--cross requires a value (example: --cross aarch64-linux-gnu-)"
+        cross_set=1
         cross_compile="$2"; shift 2
         ;;
       --defconfig)
         [[ $# -ge 2 ]] || die "--defconfig requires a value (example: --defconfig defconfig)"
+        defconfig_set=1
         defconfig_target="$2"; shift 2
         ;;
       --kconfig|-K)
         [[ $# -ge 2 ]] || die "--kconfig requires a file path"
         kconfig_fragments+=("$2"); shift 2
         ;;
-      --outtree|--out-of-tree) build_layout="outtree"; shift ;;
-      --intree) build_layout="intree"; shift ;;
+      --outtree|--out-of-tree) layout_set=1; build_layout="outtree"; shift ;;
+      --intree) layout_set=1; build_layout="intree"; shift ;;
       --help|-h)   echo "Usage: llbic <VERSION> [--clang VER] [--output DIR] [--json]"; exit 0 ;;
       --)
         shift
@@ -763,6 +813,13 @@ cmd_build() {
   LLBIC_CTX_CROSS_COMPILE="${cross_compile}"
   LLBIC_CTX_DEFCONFIG="${defconfig_target}"
   LLBIC_CTX_BUILD_LAYOUT="${build_layout}"
+  LLBIC_CTX_CONFIG_PATH=""
+  LLBIC_CTX_CONFIG_SHA256=""
+  LLBIC_CTX_ARCH_IS_DEFAULT=$((arch_set == 0 ? 1 : 0))
+  # "Default cross" means user didn't provide --cross (even if the resulting value is empty).
+  LLBIC_CTX_CROSS_IS_DEFAULT=$((cross_set == 0 ? 1 : 0))
+  LLBIC_CTX_DEFCONFIG_IS_DEFAULT=$((defconfig_set == 0 ? 1 : 0))
+  LLBIC_CTX_LAYOUT_IS_DEFAULT=$((layout_set == 0 ? 1 : 0))
   LLBIC_CTX_KCONFIG_FRAGMENTS=()
   for frag in "${kconfig_fragments[@]}"; do
     # Prefer relative paths in JSON for portability.
@@ -836,9 +893,15 @@ cmd_build() {
     kbuild_dir="${bc_output}/kbuild-${arch}-clang${clang_version}"
     mkdir -p -- "${kbuild_dir}"
     _log_step "compile.layout outtree=1 kbuild_dir=${kbuild_dir}"
-    LLBIC_CTX_KBUILD_DIR="${kbuild_dir}"
+    LLBIC_CTX_KBUILD_DIR="$(_normalize_path_for_json "${kbuild_dir}")"
   else
     _log_step "compile.layout outtree=0"
+  fi
+
+  info "Build config: arch=${arch} cross_compile=${cross_compile:-<empty>} defconfig=${defconfig_target} layout=${build_layout}"
+  _log_step "compile.context arch=${arch} arch_default=${LLBIC_CTX_ARCH_IS_DEFAULT} cross=${cross_compile} cross_default=${LLBIC_CTX_CROSS_IS_DEFAULT} defconfig=${defconfig_target} defconfig_default=${LLBIC_CTX_DEFCONFIG_IS_DEFAULT} layout=${build_layout} layout_default=${LLBIC_CTX_LAYOUT_IS_DEFAULT} kconfig_fragments=${#kconfig_fragments[@]}"
+  if [[ ${#kconfig_fragments[@]} -gt 0 ]]; then
+    info "Kconfig fragments: ${#kconfig_fragments[@]}"
   fi
 
   local kver
@@ -1032,6 +1095,8 @@ _compile_lto() {
   local config_path="${kernel_src}/.config"
   [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
 
+  LLBIC_CTX_CONFIG_PATH="$(_normalize_path_for_json "${config_path}")"
+
   _apply_kconfig_fragments "${kernel_src}" "${kbuild_dir}" "${config_path}" "${kconfig_fragments[@]}"
 
   "${kernel_src}/scripts/config" --file "${config_path}" \
@@ -1043,6 +1108,9 @@ _compile_lto() {
 
   make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
     CC="${clang}" LLVM=1 LLVM_IAS=1 olddefconfig -j"${NPROC}" > /dev/null 2>&1
+
+  LLBIC_CTX_CONFIG_SHA256="$(_sha256_file "${config_path}")"
+  _log_step "kconfig.final path=${config_path} sha256=${LLBIC_CTX_CONFIG_SHA256:-}"
 
   info "Compiling with ${clang} + full LTO..."
   make -C "${kernel_src}" \
@@ -1105,6 +1173,7 @@ _compile_irdumper() {
 
   local config_path="${kernel_src}/.config"
   [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
+  LLBIC_CTX_CONFIG_PATH="$(_normalize_path_for_json "${config_path}")"
   _apply_kconfig_fragments "${kernel_src}" "${kbuild_dir}" "${config_path}" "${kconfig_fragments[@]}"
 
   if ! grep -qF "${marker}" "${kernel_makefile}"; then
@@ -1126,6 +1195,9 @@ EOF
     LLVM_IAS=1 \
     -j"${NPROC}" \
     2>&1 | tee "${output_dir}/kernel-build.log"
+
+  LLBIC_CTX_CONFIG_SHA256="$(_sha256_file "${config_path}")"
+  _log_step "kconfig.final path=${config_path} sha256=${LLBIC_CTX_CONFIG_SHA256:-}"
 
   # Restore Makefile
   if grep -qF "${marker}" "${kernel_makefile}"; then
