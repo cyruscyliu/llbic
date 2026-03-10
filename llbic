@@ -103,6 +103,7 @@ LAST_OUTPUT_DIR=""
 LAST_VMLINUX_BC=""
 LAST_LOG_FILE=""
 LAST_KERNEL_IMAGES=()
+LAST_KERNEL_IMAGES_REL=()
 LAST_BITCODE_FILES=()
 LAST_BITCODE_FILES_REL=()
 LOG_FILE=""
@@ -292,6 +293,7 @@ _collect_kernel_images() {
   local kernel_src="$1"
   local build_dir="${2:-}"
   LAST_KERNEL_IMAGES=()
+  LAST_KERNEL_IMAGES_REL=()
   [[ -d "${kernel_src}" ]] || return 0
 
   # Prefer the actual build output dir (for out-of-tree builds), but also check
@@ -323,6 +325,18 @@ _collect_kernel_images() {
       if [[ -f "${image}" ]] && [[ -z "${seen["${image}"]:-}" ]]; then
         seen["${image}"]=1
         LAST_KERNEL_IMAGES+=("${image}")
+
+        # Prefer making paths relative to the kernel source dir for portability.
+        # If an image lives under the out-of-tree build dir, make it relative to that.
+        local rel=""
+        if [[ "${image}" == "${kernel_src%/}/"* ]]; then
+          rel="${image#${kernel_src%/}/}"
+        elif [[ -n "${build_dir}" && "${image}" == "${build_dir%/}/"* ]]; then
+          rel="${image#${build_dir%/}/}"
+        else
+          rel="${image}"
+        fi
+        LAST_KERNEL_IMAGES_REL+=("${rel}")
       fi
     done
   done
@@ -394,9 +408,12 @@ _emit_result_json() {
   if [[ -n "${LAST_VMLINUX_BC}" ]]; then
     printf '"vmlinux_bc":"%s",' "$(_json_escape "${LAST_VMLINUX_BC}")"
   else
-    printf '"vmlinux_bc":null,'
+  printf '"vmlinux_bc":null,'
   fi
   printf '"kernel_images":'
+  _json_array LAST_KERNEL_IMAGES_REL
+  printf ','
+  printf '"kernel_images_abs":'
   _json_array LAST_KERNEL_IMAGES
   printf '}'
   printf '\n'
