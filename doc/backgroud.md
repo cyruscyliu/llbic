@@ -1,4 +1,12 @@
-# Backgroud
+# Background
+
+This document summarizes common LLVM bitcode generation models and how **llbic**
+has evolved.
+
+Important caveat: in the Linux kernel tree, not every file ending in `.bc` is
+LLVM bitcode. For example, `kernel/time/timeconst.bc` is an input to the `bc`
+calculator (used to generate `include/generated/timeconst.h`), not `LLVM IR
+bitcode`.
 
 ```
      --emit-llvm   +---+  llc   +--+  ld   +---+
@@ -10,50 +18,84 @@
                +---+          +---+
 
      --emit-llvm   +---+  llvm-link   +---+
-(3) -------------> +.bc+ -----------> +.bc+  (llbic)
+(3) -------------> +.bc+ -----------> +.bc+  (legacy llbic)
                    +---+              +---+
+
+     clang + IRDumper   +--+      +---+
+(4) ------------------> +.o+  +-> +.bc+  (llbic today: per-TU dump)
+                        +--+  |   +---+
+                              |
+                              +--- normal kernel build artifacts
 ```
 
-(3) Our NAIVE algorithm, based on
-[dr_checker](https://github.com/ucsb-seclab/dr_checker), takes place of gcc with
-clang and links generated bitcode files with llvm-link. Specifically, we first
-save all makefile commands by `V=1 >makeout.txt 2>&1`. Next, to generate
-bitcode, we replace gcc with `emit-llvm` mode clang and remove unsupported flags
-to compile .c files. Note that we can not analyze .S files supported at the
-LLVM-IR level. Subsequently, during linking all bitcode files, it is essential
-to known which files to link to avoid of multi-defined symbols. We analyze all
-gcc-commands and ld-commands to find the dependency between source files and the
-final target: vmlinux. The dependency is of course a
-[tree](./arch/mips/linux-3.18.20.gv.pdf), and all leafs should be linked
-together.  As we mentioned before, only .c file can be linked, so we can only
-get a partial vmlinux (assembly in .S is missing). In practice, we still found
-multiple defined symbols when we link all leafs together because host `ld` just
-uses the first occurrence of the symbol definition and ignores others by default
-while `llvm-link` must use
-[`-override`](http://lists.llvm.org/pipermail/llvm-commits/Week-of-Mon-20150420/272071.html)
-explicitly to ingore others. We then link the bitcode files one by one according
-to their orders in the makefile commands.  **If you only need vmlinux.bc ,then
-NAIVE is simple and helpful.**
+## Legacy: NAIVE llvm-link (Removed)
 
-(1) [WLLVM](https://github.com/travitch/whole-program-llvm) provides
-python-based compiler wrappers that work in two steps. The wrappers first invoke
-the compiler as normal. Then, for each object file, they call a bitcode compiler
-to produce LLVM bitcode. The wrappers also store the location of the generated
-bitcode file in a dedicated section of the object file(e.g. objcopy).  When
-object files are linked together, the contents of the dedicated sections are
-concatenated (so we don't lose the locations of any of the constituent bitcode
-files). After the build completes, one can use a WLLVM utility to read the
-contents of the dedicated section and link all of the bitcode into a single
-whole-program bitcode file(llvm-link). This utility works for both executable
-and native libraries. The `NAIVE` algorithm is definitely a subset of the WLLVM
-w/ the ability to generate an executable vmlinux. **If you need vmlinux compiled
-by clang, use wllvm and I guess you have to solve the problem of unsupported
-flags.**
+Early versions of this repository used a dr_checker-inspired workflow:
 
-(2) The [LTO](https://llvm.org/docs/LinkTimeOptimization.html) is intermodular
-optimization when performed during the link stage. In this model, the linker
-treats LLVM bitcode files like native object files and allows mixing and
-matching among them. The linker uses libLTO, a shared object, to handle LLVM
-bitcode files. **If you need global optimization and want a vmlinux executable,
-try this.** FYI: [ThinLTO](http://clang.llvm.org/docs/ThinLTO.html): Scalable
-and Incremental LTO.
+- Capture the kernel build commands from `make V=1` into `makeout.txt`.
+- Rewrite `gcc` compilation commands into `clang --emit-llvm` commands (dropping
+  flags Clang did not understand).
+- Parse `ld` commands to reconstruct a link dependency tree up to `vmlinux`, then
+  `llvm-link` the leaf modules into a monolithic `vmlinux.bc`.
+
+This was useful as a proof-of-concept, but it was brittle in practice:
+
+- `.S` files are not represented at the LLVM-IR level, so the output was always
+  incomplete.
+- Symbol resolution differs: `ld` often picks the first definition and keeps
+  going, while `llvm-link` requires explicit conflict handling (for example via
+  [`-override`](http://lists.llvm.org/pipermail/llvm-commits/Week-of-Mon-20150420/272071.html)).
+- The approach effectively reimplements a lot of the kernel build system (and
+  breaks across versions/architectures/toolchains).
+
+The legacy Python pipeline lived in `llbic.py` plus `bin/*` (compile, dependency
+analysis, and "link-tree" construction). It has since been removed.
+
+Reference: dr_checker (https://github.com/ucsb-seclab/dr_checker). The legacy
+pipeline also produced a Graphviz-style dependency tree for some kernels/arches
+to visualize the reconstructed link structure.
+
+## Related Models
+
+(1) [WLLVM](https://github.com/travitch/whole-program-llvm) provides python-based
+compiler wrappers that work in two steps. The wrappers first invoke the compiler
+as normal. Then, for each object file, they call a bitcode compiler to produce
+LLVM bitcode. The wrappers also store the location of the generated bitcode file
+in a dedicated section of the object file (e.g. via objcopy). When object files
+are linked together, the contents of the dedicated sections are concatenated (so
+we don't lose the locations of any of the constituent bitcode files). After the
+build completes, one can use a WLLVM utility to read the contents of the
+dedicated section and link all of the bitcode into a single whole-program bitcode
+file (`llvm-link`). This utility works for both executables and native
+libraries.
+
+(2) [LTO](https://llvm.org/docs/LinkTimeOptimization.html) is intermodular
+optimization performed during the link stage. In this model, the linker treats
+LLVM bitcode files like native object files and allows mixing and matching among
+them. The linker uses `libLTO` to handle LLVM bitcode files. FYI:
+[ThinLTO](http://clang.llvm.org/docs/ThinLTO.html): scalable and incremental LTO.
+
+## Historical Review (llbic Today)
+
+The current `./llbic` script does **not** try to reconstruct a full link tree or
+force a monolithic `vmlinux.bc`. Instead, it focuses on producing a reproducible
+kernel build and collecting whatever LLVM bitcode the chosen strategy naturally
+emits.
+
+1. Kernel-native Clang LTO (preferred when supported)
+   - llbic enables a kernel configuration that uses Clang LTO (for example
+     `CONFIG_LTO_CLANG_FULL`) and builds with `LLVM=1`.
+   - llbic then searches the relevant build root for real LLVM bitcode modules
+     (verified by file type, not by filename) and writes a manifest.
+
+2. IRDumper pass plugin (fallback)
+   - If native LTO is not viable, llbic loads the `IRDumper` Clang pass plugin.
+   - This keeps the normal compilation output (`.o`) but also dumps a `.bc` file
+     per compiled translation unit (roughly per `.c` file).
+   - This is more stable than the legacy link-tree approach because it does not
+     require re-linking the entire kernel in LLVM space.
+
+In both modes, llbic writes logs/metadata under `out/linux-<ver>/`, including:
+
+- `llbic.json`: summary (includes `bitcode_root` plus relative paths)
+- `bitcode_files.txt`: list of LLVM bitcode files (relative paths)

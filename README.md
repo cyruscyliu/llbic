@@ -1,76 +1,163 @@
-# LLBIC: LLVM Linux Build Issues Collection
+# llbic
 
-Performing static analysis with clang on Linux kernel source code requires LLVM
-bitcode. While the latest Linux kernel supports clang, we still have troubles
-compiling old Linux kernels. Ad-hoc solutions are all over the internet, in a
-blog, in commit comments, etc. This project is then aiming to put these
-solutions together as a `build issues collection`.
+Compile Linux kernels to source code, LLVM bitcode, and kernel images with one
+stable command.
 
-Furthermore, this project can help compile old Linux kernels in LLVM bitcode.
-It replaces GCC to clang and adjusts other flags in the make command lines to
-generate bitcode files, and then links them all together to a `vmlinux.bc`. The
-initial idea was inspired by
-[dr_checker](https://github.com/ucsb-seclab/dr_checker) ([port dr_checker to
-clang9](./doc/port-dr_checker-2-clang-9.md)). Other approaches that support the
-latest Linux kernel are [WLLVM and LTO](./doc/backgroud.md), which is not
-included in this project.
+[![Container Registry](https://img.shields.io/badge/ghcr.io-llbic-blue)](https://github.com/cyruscyliu/llbic/pkgs/container/llbic)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-```
-+--+   gcc    +-----------+   llbic   +---+
-+.c+  ----->  +makeout.txt+  -------> +.bc+
-+--+          +-----------+           +---+
+`llbic` is a one-shot interface for turning a Linux kernel version into a build
+workspace.  It is designed for researchers, tool builders, and agent workflows
+that need stable kernel artifacts instead of ad hoc scripts.
+
+## Quick start
+
+Run the local wrapper:
+
+```bash
+./llbic 6.12
 ```
 
-# Usage
+This downloads the kernel source, builds it, and writes output to:
 
-## Create docker and Run
-
-```
-sudo docker build . -t llbic:latest
-sudo docker-compose up -d
-sudo docker-compose run --rm llbic /bin/bash
-sudo docker-compose down
-```
-
-## Compile, Patch, ReCompile, and Link
-
-To apply LLBIC, you have to download the Linux kernel source code and
-(cross-)compilers, and manage to build the Linux kernel to get a `makeout.txt`.
-
-```
-bash -x download-kernel.sh
-apt-get install -y crossbuild-essential-armel
-cd linux-x.x.x
-make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- orion5x_defconfig
-make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- V=1 > makeout.txt
+```text
+out/linux-6.12/
+  llbic.log
+  kernel-build.log
+  llbic.json
+  bitcode_files.txt
 ```
 
-Examples are in the following.
+`./llbic` will run inside Docker when Docker is available, and will build the
+local image if it is missing. Use `LLBIC_REBUILD=1` to force rebuilding the
+image.
 
-```
-./llbic.py -a arm -s linux-4.4.42 -mo linux-4.4.42/makeout.txt -o linux-4.4.42-llvm-bitcode patch
-./llbic.py -a arm -s linux-4.4.42 -mo linux-4.4.42/makeout.txt -o linux-4.4.42-llvm-bitcode compile
-./llbic.py -a arm -s linux-4.4.42 -mo linux-4.4.42/makeout.txt -o linux-4.4.42-llvm-bitcode link
+Use `--clang` to pick a toolchain:
 
-./llbic.py -a arm -s linux-4.14.167 -mo linux-4.14.167/makeout.txt -o linux-4.14.167-llvm-bitcode patch
-./llbic.py -a arm -s linux-4.14.167 -mo linux-4.14.167/makeout.txt -o linux-4.14.167-llvm-bitcode compile
-./llbic.py -a arm -s linux-4.14.167 -mo linux-4.14.167/makeout.txt -o linux-4.14.167-llvm-bitcode link
+```bash
+./llbic 6.12 --clang 18
 ```
 
-## Support List
+Use `--arch` (and optionally `--cross`) to build for another architecture:
 
-Because LLBIC is part of [FirmGuide](https://github.com/cyruscyliu/firmguide),
-we now support ARM and MIPS Linux 2.6.32
-[patch](./patches/2.6.32/linux-2.6.32.sh), 3.18.20
-[patch](./patches/3.18.20/linux-3.18.20.sh), 4.4.42
-[patch](./patches/4.4.42/linux-4.4.42.sh), 4.14.167
-[patch](./patches/4.14.167/linux-4.14.167.sh). A next plan is on demand if there
-is any requirement from both academia and industry.
+```bash
+./llbic 6.12 --arch arm64
+./llbic 6.12 --arch arm --cross arm-linux-gnueabi-
+```
 
-## Authors
+For agents, use JSON output:
 
-[Qiang Liu](https://github.com/cyruscyliu), and [Cen Zhang](https://github.com/occia)
+```bash
+./llbic --json 6.12
+```
 
-## Contact
+What you get from one run:
 
-If you have any problems, please fire issues!
+- Resolved kernel source tarball from `kernel.org`
+- Extracted source tree
+- A kernel build (in-tree by default; or out-of-tree with `--out-of-tree`)
+- LLVM bitcode manifest (`bitcode_files.txt`) plus `bitcode_root` in `llbic.json`
+- Compiled kernel images when produced by the target kernel (`vmlinux`, `bzImage`, etc.)
+- End-to-end `llbic.log`
+- Optional JSON output for agents
+
+Example response:
+
+Note: when `./llbic` runs inside Docker, the JSON paths are container paths (for
+example `/out/...` and `/work/...`). On the host, these correspond to
+`./out/...` and the repo directory.
+
+```json
+{
+  "status": "success",
+  "kernel_version": "6.12",
+  "kernel_name": "linux-6.12",
+  "source_url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.tar.xz",
+  "source_dir": "/work/sources/linux-6.12",
+  "output_dir": "/out/linux-6.12",
+  "log_file": "/out/linux-6.12/llbic.log",
+  "kernel_build_log": "/out/linux-6.12/kernel-build.log",
+  "arch": "x86_64",
+  "cross_compile": null,
+  "defconfig": "defconfig",
+  "build_layout": "intree",
+  "kconfig_fragments": [],
+  "bitcode_root": "/work/sources/linux-6.12",
+  "bitcode_list_file": "/out/linux-6.12/bitcode_files.txt",
+  "clang": "clang",
+  "llvm_major": "18",
+  "bitcode_files_rel": [
+    "kernel/sched/core.bc"
+  ],
+  "bitcode_count": 1,
+  "vmlinux_bc": null,
+  "kernel_images": [
+    "vmlinux",
+    "arch/x86/boot/bzImage"
+  ]
+}
+```
+
+## Usage
+
+`--out-of-tree` builds with `make O=<dir>` so the build output lives outside the
+extracted source tree. This avoids conflicts when rebuilding the same kernel
+with a different `--clang` version.
+
+Artifacts are written under `out/linux-<version>/` by default (override
+with `--output`):
+
+- `llbic.log`: end-to-end build log
+- `llbic.json`: machine-readable build summary
+- `bitcode_files.txt`: list of detected LLVM bitcode files (relative paths under `bitcode_root`)
+
+`--json` also prints the JSON summary to stdout.
+
+Note: `kernel/time/timeconst.bc` in the Linux source tree is an input for the `bc`
+calculator (used to generate `include/generated/timeconst.h`), not LLVM bitcode.
+
+Different images serve different kernel era:
+
+| Image | Kernels | Clang |
+|---|---|---|
+| `ghcr.io/cyruscyliu/llbic:latest` | 6.x, 7.x | 14, 15, 16, 18 |
+| `ghcr.io/cyruscyliu/llbic:mid` | 4.x, 5.x | 8, 9, 10, 11, 12 |
+| `ghcr.io/cyruscyliu/llbic:legacy` | 2.6, 3.x | 6.0, 7, 8 |
+
+Flags:
+
+- `--arch, -a`: `x86_64` (default), `arm`, `arm64`, `mips`, `riscv`
+- `--cross`: `CROSS_COMPILE` prefix (defaults are applied for some arches; override as needed)
+- `--defconfig`: kbuild config target (default: `defconfig`)
+- `--kconfig, -K`: merge one or more Kconfig fragments into the generated `.config` (repeatable)
+
+Example: build ARM64 `defconfig` plus your own config fragment:
+
+```bash
+./llbic 6.18.16 --arch arm64 --out-of-tree -K ./my-kconfig.fragment
+```
+
+## Status board
+
+`status/matrix.json` defines a set of kernel versions + knobs (arch/clang/layout)
+to test before release. To run it:
+
+```bash
+scripts/run_status_board.py --matrix status/matrix.json
+```
+
+This generates:
+
+- `status/status.json` (machine-readable)
+- `status/STATUS.md` (human-readable)
+
+## Community
+
+- Contributions are welcome through issues and pull requests.
+- For repo conventions and contribution flow, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+- For security reporting guidance, see [SECURITY.md](./SECURITY.md).
+- Community participation is covered by [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
+
+## License
+
+See [LICENSE](LICENSE).

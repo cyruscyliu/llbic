@@ -1,0 +1,20 @@
+# Git
+.git
+.gitignore
+
+# Build output (host-side)
+build/
+sources/
+
+# IDE
+.idea
+.vscode
+.claude
+
+# Docs
+doc/
+*.md
+LICENSE
+
+# Docker files (avoid recursive context)
+docker-compose.yml

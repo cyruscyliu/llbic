@@ -1,10 +1,39 @@
-version: '2'
 services:
   llbic:
     container_name: llbic
-    image: llbic:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: ghcr.io/cyruscyliu/llbic:latest
+    user: "${UID:-1000}:${GID:-1000}"
     stdin_open: true
     tty: true
-    working_dir: /root
     volumes:
-      - .:/root/llbic
+      - .:/home/llbic
+      - ./out:/out
+
+  llbic-mid:
+    container_name: llbic-mid
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mid
+    image: ghcr.io/cyruscyliu/llbic:mid
+    user: "${UID:-1000}:${GID:-1000}"
+    stdin_open: true
+    tty: true
+    volumes:
+      - .:/home/llbic
+      - ./out:/out
+
+  llbic-legacy:
+    container_name: llbic-legacy
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.legacy
+    image: ghcr.io/cyruscyliu/llbic:legacy
+    user: "${UID:-1000}:${GID:-1000}"
+    stdin_open: true
+    tty: true
+    volumes:
+      - .:/home/llbic
+      - ./out:/out

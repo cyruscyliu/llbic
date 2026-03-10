@@ -1,0 +1,1352 @@
+#!/usr/bin/env bash
+
+# This repository is intended to be run inside the provided Docker images.
+# When invoked on a host with Docker available, re-exec ourselves in a container.
+#
+# Bypass with: LLBIC_NO_DOCKER=1 ./llbic ...
+if [[ -z "${LLBIC_NO_DOCKER:-}" ]] && command -v docker >/dev/null 2>&1; then
+  in_container=0
+  [[ -f "/.dockerenv" ]] && in_container=1
+  if [[ "${in_container}" -eq 0 ]] && [[ -r /proc/1/cgroup ]]; then
+    if grep -qF "docker" /proc/1/cgroup 2>/dev/null || \
+       grep -qF "containerd" /proc/1/cgroup 2>/dev/null || \
+       grep -qF "kubepods" /proc/1/cgroup 2>/dev/null; then
+      in_container=1
+    fi
+  fi
+
+  if [[ "${in_container}" -eq 0 ]]; then
+    image=""
+    dockerfile=""
+
+    # Choose an image based on the kernel major version unless the user overrides it.
+    # Override:
+    # - LLBIC_IMAGE=... (image tag to run)
+    # - LLBIC_DOCKERFILE=... (Dockerfile to build when image is missing)
+    if [[ -n "${LLBIC_IMAGE:-}" ]]; then
+      image="${LLBIC_IMAGE}"
+    else
+      kernel_ver=""
+      args=("$@")
+      idx=0
+      while [[ ${idx} -lt ${#args[@]} ]]; do
+        arg="${args[${idx}]}"
+    case "${arg}" in
+      --json) ((idx+=1)) ;;
+      --clang|-c|--output|-o|--arch|-a|--cross|--defconfig|--kconfig|-K) ((idx+=2)) ;; # skip flag + value
+      --) ((idx+=1)); break ;;
+      -*) ((idx+=1)) ;;
+      *) kernel_ver="${arg}"; break ;;
+    esac
+      done
+
+      major=""
+      if [[ "${kernel_ver}" =~ ^([0-9]+)\\. ]]; then
+        major="${BASH_REMATCH[1]}"
+      elif [[ "${kernel_ver}" =~ ^([0-9]+)$ ]]; then
+        major="${BASH_REMATCH[1]}"
+      fi
+
+      case "${major}" in
+        2|3) image="ghcr.io/cyruscyliu/llbic:legacy" ;;
+        4|5) image="ghcr.io/cyruscyliu/llbic:mid" ;;
+        *)   image="ghcr.io/cyruscyliu/llbic:latest" ;;
+      esac
+    fi
+
+    if [[ -n "${LLBIC_DOCKERFILE:-}" ]]; then
+      dockerfile="${LLBIC_DOCKERFILE}"
+    else
+      case "${image}" in
+        *:legacy) dockerfile="docker/Dockerfile.legacy" ;;
+        *:mid)    dockerfile="docker/Dockerfile.mid" ;;
+        *)        dockerfile="docker/Dockerfile" ;;
+      esac
+    fi
+
+    host_root="$(pwd)"
+    mkdir -p -- "${host_root}/out" "${host_root}/sources"
+
+    # Prefer a local image if present; otherwise build from the local repo.
+    if [[ -n "${LLBIC_REBUILD:-}" ]] || ! docker image inspect "${image}" >/dev/null 2>&1; then
+      if [[ ! -f "${host_root}/${dockerfile}" ]]; then
+        die "Docker image '${image}' not found locally, and Dockerfile not found: ${dockerfile}"
+      fi
+      docker build -f "${dockerfile}" -t "${image}" "${host_root}" >/dev/null
+    fi
+
+    exec docker run --rm \
+      --user "$(id -u):$(id -g)" \
+      -e HOME=/tmp \
+      -e LLBIC_SOURCES=/work/sources \
+      -e LLBIC_CONF=/work/sources.conf \
+      -v "${host_root}:/work" \
+      -w /work \
+      -v "${host_root}/out:/out" \
+      "${image}" "$@"
+  fi
+fi
+
+set -euo pipefail
+
+VERSION="0.1.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="${LLBIC_ROOT:-$PWD}"
+SOURCES_DIR="${LLBIC_SOURCES:-${ROOT_DIR}/sources}"
+BUILD_DIR="${LLBIC_OUTPUT:-${ROOT_DIR}/build}"
+CONF_FILE="${LLBIC_CONF:-${ROOT_DIR}/sources.conf}"
+NPROC="${NPROC:-$(nproc)}"
+JSON_OUTPUT=0
+LAST_SOURCE_URL=""
+LAST_SOURCE_DIR=""
+LAST_OUTPUT_DIR=""
+LAST_VMLINUX_BC=""
+LAST_LOG_FILE=""
+LAST_KERNEL_IMAGES=()
+LAST_KERNEL_IMAGES_REL=()
+LAST_BITCODE_FILES=()
+LAST_BITCODE_FILES_REL=()
+LOG_FILE=""
+
+# Build-context globals used to emit llbic.json even on failures (via EXIT trap).
+LLBIC_CTX_ACTIVE=0
+LLBIC_CTX_PHASE=""
+LLBIC_CTX_KERNEL_VER=""
+LLBIC_CTX_KERNEL_NAME=""
+LLBIC_CTX_KERNEL_SRC=""
+LLBIC_CTX_BC_OUTPUT=""
+LLBIC_CTX_KBUILD_DIR=""
+LLBIC_CTX_JSON_FILE=""
+LLBIC_CTX_BC_LIST_FILE=""
+LLBIC_CTX_KERNEL_BUILD_LOG=""
+LLBIC_CTX_CLANG=""
+LLBIC_CTX_LLVM_MAJOR=""
+LLBIC_CTX_STRATEGY=""
+LLBIC_CTX_BITCODE_ROOT=""
+LLBIC_CTX_ARCH=""
+LLBIC_CTX_CROSS_COMPILE=""
+LLBIC_CTX_DEFCONFIG="defconfig"
+LLBIC_CTX_BUILD_LAYOUT=""
+LLBIC_CTX_KCONFIG_FRAGMENTS=()
+LLBIC_CTX_CONFIG_PATH=""
+LLBIC_CTX_CONFIG_SHA256=""
+LLBIC_CTX_ARCH_IS_DEFAULT=1
+LLBIC_CTX_CROSS_IS_DEFAULT=1
+LLBIC_CTX_DEFCONFIG_IS_DEFAULT=1
+LLBIC_CTX_LAYOUT_IS_DEFAULT=1
+
+# --- Colors ---
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[0;33m'
+BOLD=$'\033[1m'
+NC=$'\033[0m'
+
+info()  { printf '%s[+]%s %s\n' "${GREEN}" "${NC}" "$*" >&2; }
+warn()  { printf '%s[!]%s %s\n' "${YELLOW}" "${NC}" "$*" >&2; }
+error() { printf '%s[-]%s %s\n' "${RED}" "${NC}" "$*" >&2; }
+die()   { error "$@"; exit 1; }
+
+# ============================================================
+# Helpers
+# ============================================================
+_require_one_line() {
+  local label="$1" value="${2:-}"
+  if [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* ]]; then
+    die "${label} must be a single line"
+  fi
+}
+
+_validate_arch() {
+  local arch="$1"
+  case "${arch}" in
+    x86_64|arm|arm64|mips|riscv) return 0 ;;
+    *) die "Invalid arch: '${arch}'. Use: x86_64, arm, arm64, mips, riscv" ;;
+  esac
+}
+
+_default_cross_for_arch() {
+  local arch="$1"
+  case "${arch}" in
+    arm64) echo "aarch64-linux-gnu-" ;;
+    arm)   echo "arm-linux-gnueabi-" ;;
+    mips)  echo "mipsel-linux-gnu-" ;;
+    riscv) echo "" ;;
+    x86_64) echo "" ;;
+    *) echo "" ;;
+  esac
+}
+
+_normalize_path_for_json() {
+  local p="$1"
+  # Best-effort: make paths relative to ROOT_DIR when possible.
+  if [[ -n "${ROOT_DIR:-}" && "${p}" == "${ROOT_DIR%/}/"* ]]; then
+    echo "${p#${ROOT_DIR%/}/}"
+  else
+    echo "${p}"
+  fi
+}
+
+_sha256_file() {
+  local p="$1"
+  [[ -f "${p}" ]] || return 0
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${p}" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${p}" | awk '{print $1}'
+  else
+    echo ""
+  fi
+}
+
+_apply_kconfig_fragments() {
+  local kernel_src="$1"
+  local kbuild_dir="$2"
+  local config_path="$3"
+  shift 3
+  local -a fragments=("$@")
+
+  [[ ${#fragments[@]} -gt 0 ]] || return 0
+  [[ -f "${config_path}" ]] || die ".config not found: ${config_path}"
+
+  info "Applying kconfig fragments: ${#fragments[@]}"
+  _log_step "kconfig.fragments count=${#fragments[@]}"
+
+  local merge_script="${kernel_src}/scripts/kconfig/merge_config.sh"
+  if [[ -x "${merge_script}" ]]; then
+    local out_dir="${kbuild_dir:-${kernel_src}}"
+    # merge_config.sh is fairly chatty; keep detailed output in llbic.log.
+    "${merge_script}" -m -r -O "${out_dir}" "${config_path}" "${fragments[@]}" >> "${LOG_FILE}" 2>&1 || \
+      die "merge_config.sh failed (see ${LOG_FILE})"
+  else
+    # Fallback: apply only simple CONFIG_FOO=[ymn] lines using scripts/config.
+    local sc="${kernel_src}/scripts/config"
+    [[ -x "${sc}" ]] || die "Missing scripts/config and scripts/kconfig/merge_config.sh"
+    local frag line key val
+    for frag in "${fragments[@]}"; do
+      while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -z "${line}" ]] && continue
+        [[ "${line}" =~ ^[[:space:]]*# ]] && continue
+        if [[ "${line}" =~ ^(CONFIG_[A-Za-z0-9_]+)=(y|m|n)$ ]]; then
+          key="${BASH_REMATCH[1]}"
+          val="${BASH_REMATCH[2]}"
+          case "${val}" in
+            y) "${sc}" --file "${config_path}" --enable "${key#CONFIG_}" ;;
+            m) "${sc}" --file "${config_path}" --module "${key#CONFIG_}" ;;
+            n) "${sc}" --file "${config_path}" --disable "${key#CONFIG_}" ;;
+          esac
+        elif [[ "${line}" =~ ^#\ (CONFIG_[A-Za-z0-9_]+)\ is\ not\ set$ ]]; then
+          key="${BASH_REMATCH[1]}"
+          "${sc}" --file "${config_path}" --disable "${key#CONFIG_}"
+        fi
+      done < "${frag}"
+    done
+  fi
+}
+
+_validate_kernel_version() {
+  local ver="$1"
+  _require_one_line "kernel version" "${ver}"
+
+  # Version is used in:
+  # - filenames/dirs (linux-${ver}.tar.xz, sources/linux-${ver}/)
+  # - kernel.org URL construction
+  #
+  # So we allow broad "kernel-like" strings but forbid path traversal, whitespace,
+  # and characters that could be interpreted by tools or the filesystem.
+  #
+  # Examples allowed: 6.12, 2.6.32.71, 6.12-rc1, 6.1.0-rt11, 6.9.0-next-20240510
+  if [[ -z "${ver}" ]]; then
+    die "Kernel version required. Example: llbic 6.12"
+  fi
+  if [[ ${#ver} -gt 128 ]]; then
+    die "Kernel version is too long (${#ver} > 128): '${ver}'"
+  fi
+  if [[ "${ver}" == *".."* ]]; then
+    die "Invalid kernel version (path traversal not allowed): '${ver}'"
+  fi
+  if [[ "${ver}" =~ [[:space:]] ]]; then
+    die "Invalid kernel version (whitespace not allowed): '${ver}'"
+  fi
+  if [[ "${ver}" == *"/"* || "${ver}" == *"\\"* ]]; then
+    die "Invalid kernel version (slashes not allowed): '${ver}'"
+  fi
+  if [[ ! "${ver}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
+    die "Invalid kernel version: '${ver}'. Allowed chars: A-Z a-z 0-9 . _ + -"
+  fi
+}
+
+_validate_clang_version() {
+  local ver="${1:-}"
+  [[ -n "${ver}" ]] || return 0
+  _require_one_line "clang version" "${ver}"
+
+  # This value becomes part of the compiler command (CC=clang-<ver>).
+  # Only allow numeric versions like: 18, 6.0
+  if [[ ! "${ver}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    die "Invalid clang version: '${ver}'. Expected like: 18"
+  fi
+}
+
+_version_ge() {
+  printf '%s\n%s' "$2" "$1" | sort -V -C
+}
+
+_resolve_clang() {
+  local ver="${1:-}"
+  if [[ -n "${ver}" ]]; then
+    echo "clang-${ver}"
+  else
+    echo "clang"
+  fi
+}
+
+_kernel_url() {
+  # Backwards compatible: first candidate URL.
+  _kernel_urls "$1" | head -n 1
+}
+
+_kernel_urls() {
+  local ver="$1"
+  ver="${ver#linux-}"
+
+  local major=""
+  if [[ "${ver}" =~ ^([0-9]+)\. ]]; then
+    major="${BASH_REMATCH[1]}"
+  elif [[ "${ver}" =~ ^([0-9]+)$ ]]; then
+    major="${BASH_REMATCH[1]}"
+  fi
+
+  local -a urls=()
+
+  # For -rc releases, kernel.org places tarballs under .../testing/.
+  if [[ -n "${major}" && "${ver}" == *"-rc"* ]]; then
+    urls+=("https://cdn.kernel.org/pub/linux/kernel/v${major}.x/testing/linux-${ver}.tar.xz")
+    urls+=("https://cdn.kernel.org/pub/linux/kernel/v${major}.x/testing/linux-${ver}.tar.gz")
+  fi
+
+  # Normal stable/longterm tarballs.
+  if [[ -n "${major}" ]]; then
+    urls+=("https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${ver}.tar.xz")
+    urls+=("https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${ver}.tar.gz")
+  fi
+
+  # Fallback: git.kernel.org snapshot tarball (works for rc tags).
+  urls+=("https://git.kernel.org/torvalds/t/linux-${ver}.tar.gz")
+
+  # De-duplicate while preserving order.
+  local u
+  local -A seen=()
+  for u in "${urls[@]}"; do
+    [[ -n "${seen["${u}"]:-}" ]] && continue
+    seen["${u}"]=1
+    echo "${u}"
+  done
+}
+
+_normalize_kernel_name() {
+  local value="$1"
+  value="${value#linux-}"
+  echo "linux-${value}"
+}
+
+_default_output_dir() {
+  # Prefer the conventional /out mount inside containers; otherwise use repo-local ./out.
+  if [[ -d "/out" ]]; then
+    echo "/out"
+  else
+    echo "${ROOT_DIR}/out"
+  fi
+}
+
+_timestamp() {
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+_log_step() {
+  [[ -n "${LOG_FILE}" ]] || return 0
+  printf '[%s] %s\n' "$(_timestamp)" "$*" >> "${LOG_FILE}"
+}
+
+_json_escape() {
+  local value="${1:-}"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "${value}"
+}
+
+_json_array() {
+  local -n items_ref=$1
+  local first=1
+  printf '['
+  local item
+  for item in "${items_ref[@]}"; do
+    [[ ${first} -eq 1 ]] || printf ','
+    first=0
+    printf '"%s"' "$(_json_escape "${item}")"
+  done
+  printf ']'
+}
+
+_collect_bitcode_files() {
+  local search_root="$1"
+  local kind="$2"
+  LAST_BITCODE_FILES=()
+  LAST_BITCODE_FILES_REL=()
+  [[ -d "${search_root}" ]] || return 0
+
+  local pattern=""
+  case "${kind}" in
+    lto) pattern="*.o" ;;
+    irdumper) pattern="*.bc" ;;
+    *) die "Unknown bitcode kind: ${kind}" ;;
+  esac
+
+  while IFS= read -r file; do
+    # Only count real LLVM bitcode. Kernel sources also contain files ending in
+    # .bc that are inputs for the 'bc' calculator (e.g. kernel/time/timeconst.bc).
+    if file "${file}" 2>/dev/null | grep -q "LLVM IR bitcode"; then
+      LAST_BITCODE_FILES+=("${file}")
+      # Relative to search_root for portability.
+      local rel="${file#${search_root%/}/}"
+      LAST_BITCODE_FILES_REL+=("${rel}")
+    fi
+  done < <(find "${search_root}" -type f -name "${pattern}" | sort)
+}
+
+_write_bitcode_list_file() {
+  local list_file="$1"
+  mkdir -p -- "$(dirname "${list_file}")"
+  # One relative path per line (LLVM IR only), stable order.
+  printf '%s\n' "${LAST_BITCODE_FILES_REL[@]}" > "${list_file}"
+}
+
+_collect_kernel_images() {
+  local kernel_src="$1"
+  local build_dir="${2:-}"
+  LAST_KERNEL_IMAGES=()
+  LAST_KERNEL_IMAGES_REL=()
+  [[ -d "${kernel_src}" ]] || return 0
+
+  # Prefer the actual build output dir (for out-of-tree builds), but also check
+  # the source tree for in-tree builds or unusual layouts.
+  local -a roots=()
+  if [[ -n "${build_dir}" && -d "${build_dir}" ]]; then
+    roots+=("${build_dir}")
+  fi
+  roots+=("${kernel_src}")
+
+  local -A seen=()
+
+  local root image
+  for root in "${roots[@]}"; do
+    local -a candidates=(
+      "${root}/vmlinux"
+      "${root}/arch/x86/boot/bzImage"
+      "${root}/arch/x86/boot/compressed/vmlinux"
+      "${root}/arch/arm/boot/zImage"
+      "${root}/arch/arm/boot/Image"
+      "${root}/arch/arm64/boot/Image"
+      "${root}/arch/arm64/boot/Image.gz"
+      "${root}/arch/mips/boot/vmlinux.bin"
+      "${root}/arch/mips/boot/compressed/vmlinuz"
+      "${root}/arch/riscv/boot/Image"
+    )
+
+    for image in "${candidates[@]}"; do
+      if [[ -f "${image}" ]] && [[ -z "${seen["${image}"]:-}" ]]; then
+        seen["${image}"]=1
+        LAST_KERNEL_IMAGES+=("${image}")
+
+        # Prefer making paths relative to the kernel source dir for portability.
+        # If an image lives under the out-of-tree build dir, make it relative to that.
+        local rel=""
+        if [[ "${image}" == "${kernel_src%/}/"* ]]; then
+          rel="${image#${kernel_src%/}/}"
+        elif [[ -n "${build_dir}" && "${image}" == "${build_dir%/}/"* ]]; then
+          rel="${image#${build_dir%/}/}"
+        else
+          rel="${image}"
+        fi
+        LAST_KERNEL_IMAGES_REL+=("${rel}")
+      fi
+    done
+  done
+}
+
+_emit_build_json() {
+  local kernel_ver="$1"
+  local kernel_name="$2"
+  local clang="$3"
+  local llvm_major="$4"
+
+  # Backwards-compatible success-only JSON.
+  _emit_result_json "success" 0 "" "" "${kernel_ver}" "${kernel_name}" "${clang}" "${llvm_major}"
+}
+
+_emit_result_json() {
+  local status="$1"
+  local exit_code="$2"
+  local error_step="$3"
+  local error_msg="$4"
+  local kernel_ver="$5"
+  local kernel_name="$6"
+  local clang="$7"
+  local llvm_major="$8"
+
+  printf '{'
+  printf '"status":"%s",' "$(_json_escape "${status}")"
+  printf '"exit_code":%s,' "${exit_code}"
+  if [[ -n "${error_step}" ]]; then
+    printf '"error_step":"%s",' "$(_json_escape "${error_step}")"
+  else
+    printf '"error_step":null,'
+  fi
+  if [[ -n "${error_msg}" ]]; then
+    printf '"error":"%s",' "$(_json_escape "${error_msg}")"
+  else
+    printf '"error":null,'
+  fi
+  printf '"kernel_version":"%s",' "$(_json_escape "${kernel_ver}")"
+  printf '"kernel_name":"%s",' "$(_json_escape "${kernel_name}")"
+  printf '"source_url":"%s",' "$(_json_escape "${LAST_SOURCE_URL}")"
+  printf '"source_dir":"%s",' "$(_json_escape "${LAST_SOURCE_DIR}")"
+  printf '"output_dir":"%s",' "$(_json_escape "${LAST_OUTPUT_DIR}")"
+  printf '"log_file":"%s",' "$(_json_escape "${LAST_LOG_FILE}")"
+  if [[ -n "${LLBIC_CTX_STRATEGY:-}" ]]; then
+    printf '"strategy":"%s",' "$(_json_escape "${LLBIC_CTX_STRATEGY}")"
+  else
+    printf '"strategy":null,'
+  fi
+  printf '"arch":"%s",' "$(_json_escape "${LLBIC_CTX_ARCH:-}")"
+  printf '"arch_is_default":%s,' "${LLBIC_CTX_ARCH_IS_DEFAULT:-1}"
+  if [[ -n "${LLBIC_CTX_CROSS_COMPILE:-}" ]]; then
+    printf '"cross_compile":"%s",' "$(_json_escape "${LLBIC_CTX_CROSS_COMPILE}")"
+  else
+    printf '"cross_compile":null,'
+  fi
+  printf '"cross_compile_is_default":%s,' "${LLBIC_CTX_CROSS_IS_DEFAULT:-1}"
+  printf '"defconfig":"%s",' "$(_json_escape "${LLBIC_CTX_DEFCONFIG:-defconfig}")"
+  printf '"defconfig_is_default":%s,' "${LLBIC_CTX_DEFCONFIG_IS_DEFAULT:-1}"
+  printf '"build_layout":"%s",' "$(_json_escape "${LLBIC_CTX_BUILD_LAYOUT:-}")"
+  printf '"build_layout_is_default":%s,' "${LLBIC_CTX_LAYOUT_IS_DEFAULT:-1}"
+  printf '"kconfig_fragments":'
+  _json_array LLBIC_CTX_KCONFIG_FRAGMENTS
+  printf ','
+  printf '"kconfig_fragments_count":%s,' "${#LLBIC_CTX_KCONFIG_FRAGMENTS[@]}"
+  if [[ -n "${LLBIC_CTX_KBUILD_DIR:-}" ]]; then
+    printf '"kbuild_dir":"%s",' "$(_json_escape "${LLBIC_CTX_KBUILD_DIR}")"
+  else
+    printf '"kbuild_dir":null,'
+  fi
+  if [[ -n "${LLBIC_CTX_CONFIG_PATH:-}" ]]; then
+    printf '"config_path":"%s",' "$(_json_escape "${LLBIC_CTX_CONFIG_PATH}")"
+  else
+    printf '"config_path":null,'
+  fi
+  if [[ -n "${LLBIC_CTX_CONFIG_SHA256:-}" ]]; then
+    printf '"config_sha256":"%s",' "$(_json_escape "${LLBIC_CTX_CONFIG_SHA256}")"
+  else
+    printf '"config_sha256":null,'
+  fi
+  if [[ -n "${LLBIC_CTX_BITCODE_ROOT:-}" ]]; then
+    printf '"bitcode_root":"%s",' "$(_json_escape "${LLBIC_CTX_BITCODE_ROOT}")"
+  else
+    printf '"bitcode_root":null,'
+  fi
+  if [[ -n "${LLBIC_CTX_KERNEL_BUILD_LOG:-}" ]]; then
+    printf '"kernel_build_log":"%s",' "$(_json_escape "${LLBIC_CTX_KERNEL_BUILD_LOG}")"
+  else
+    printf '"kernel_build_log":null,'
+  fi
+  if [[ -n "${LLBIC_CTX_BC_LIST_FILE:-}" ]]; then
+    printf '"bitcode_list_file":"%s",' "$(_json_escape "${LLBIC_CTX_BC_LIST_FILE}")"
+  else
+    printf '"bitcode_list_file":null,'
+  fi
+  printf '"clang":"%s",' "$(_json_escape "${clang}")"
+  printf '"llvm_major":"%s",' "$(_json_escape "${llvm_major}")"
+  printf '"bitcode_files":'
+  _json_array LAST_BITCODE_FILES
+  printf ','
+  printf '"bitcode_files_rel":'
+  _json_array LAST_BITCODE_FILES_REL
+  printf ','
+  printf '"bitcode_count":%s,' "${#LAST_BITCODE_FILES[@]}"
+  if [[ -n "${LAST_VMLINUX_BC}" ]]; then
+    printf '"vmlinux_bc":"%s",' "$(_json_escape "${LAST_VMLINUX_BC}")"
+  else
+  printf '"vmlinux_bc":null,'
+  fi
+  printf '"kernel_images":'
+  _json_array LAST_KERNEL_IMAGES_REL
+  printf ','
+  printf '"kernel_images_abs":'
+  _json_array LAST_KERNEL_IMAGES
+  printf '}'
+  printf '\n'
+}
+
+_write_build_json_file() {
+  local json_file="$1"
+  local status="$2"
+  local exit_code="$3"
+  local error_step="$4"
+  local error_msg="$5"
+  shift
+  shift
+  shift
+  shift
+  shift
+  mkdir -p -- "$(dirname "${json_file}")"
+  _emit_result_json "${status}" "${exit_code}" "${error_step}" "${error_msg}" "$@" > "${json_file}"
+}
+
+_finalize_build_artifacts() {
+  local rc="$1"
+  [[ "${LLBIC_CTX_ACTIVE}" -eq 1 ]] || return 0
+  LLBIC_CTX_ACTIVE=0
+
+  local bc_output="${LLBIC_CTX_BC_OUTPUT}"
+  [[ -n "${bc_output}" && -d "${bc_output}" ]] || return 0
+
+  local bitcode_root="${LLBIC_CTX_BITCODE_ROOT}"
+  local strategy="${LLBIC_CTX_STRATEGY}"
+  if [[ -z "${bitcode_root}" || -z "${strategy}" || ! -d "${bitcode_root}" ]]; then
+    bitcode_root="${bc_output}"
+    strategy="irdumper"
+  fi
+
+  # Collect whatever exists, even for failed builds.
+  _collect_bitcode_files "${bitcode_root}" "${strategy}"
+  [[ -n "${LLBIC_CTX_BC_LIST_FILE}" ]] && _write_bitcode_list_file "${LLBIC_CTX_BC_LIST_FILE}"
+  _collect_kernel_images "${LLBIC_CTX_KERNEL_SRC}" "${LLBIC_CTX_KBUILD_DIR}"
+  # llbic does not force-link vmlinux.bc by default; only report it if the build
+  # produced one in the output directory.
+  [[ -f "${bc_output}/vmlinux.bc" ]] && LAST_VMLINUX_BC="${bc_output}/vmlinux.bc" || LAST_VMLINUX_BC=""
+
+  local status="fail"
+  if [[ "${rc}" -eq 0 && ${#LAST_BITCODE_FILES[@]} -gt 0 ]]; then
+    status="success"
+  fi
+
+  local err_step=""
+  local err_msg=""
+  if [[ "${status}" != "success" ]]; then
+    err_step="${LLBIC_CTX_PHASE:-}"
+    err_msg="see llbic.log and kernel-build.log for details"
+  fi
+
+  if [[ -n "${LLBIC_CTX_JSON_FILE}" ]]; then
+    _write_build_json_file \
+      "${LLBIC_CTX_JSON_FILE}" \
+      "${status}" \
+      "${rc}" \
+      "${err_step}" \
+      "${err_msg}" \
+      "${LLBIC_CTX_KERNEL_VER}" \
+      "${LLBIC_CTX_KERNEL_NAME}" \
+      "${LLBIC_CTX_CLANG:-}" \
+      "${LLBIC_CTX_LLVM_MAJOR:-}"
+  fi
+
+  if [[ "${JSON_OUTPUT}" -eq 1 && -n "${LLBIC_CTX_JSON_FILE}" && -f "${LLBIC_CTX_JSON_FILE}" ]]; then
+    cat "${LLBIC_CTX_JSON_FILE}"
+  fi
+}
+
+_download_file() {
+  local url="$1" dest="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 3 --retry-delay 2 -o "${dest}" "${url}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "${dest}" "${url}"
+  else
+    die "Neither curl nor wget is installed"
+  fi
+}
+
+_tarball_path_for_url() {
+  local kernel_name="$1" url="$2"
+  local ext="tar.xz"
+  if [[ "${url}" == *.tar.gz ]]; then
+    ext="tar.gz"
+  elif [[ "${url}" == *.tar.xz ]]; then
+    ext="tar.xz"
+  fi
+  echo "${SOURCES_DIR}/${kernel_name}.${ext}"
+}
+
+# ============================================================
+# build — one-shot: download + extract + compile
+# ============================================================
+cmd_build() {
+  local kernel_ver=""
+  local clang_version=""
+  local output_dir=""
+  local build_layout="intree"
+  local arch="x86_64"
+  local cross_compile=""
+  local defconfig_target="defconfig"
+  local -a kconfig_fragments=()
+  local arch_set=0
+  local cross_set=0
+  local defconfig_set=0
+  local layout_set=0
+  local saw_kernel_ver=0
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --clang|-c)
+        [[ $# -ge 2 ]] || die "--clang requires a value (example: --clang 18)"
+        clang_version="$2"; shift 2
+        ;;
+      --json)      JSON_OUTPUT=1; shift ;;
+      --output|-o)
+        [[ $# -ge 2 ]] || die "--output requires a value (example: --output ./out)"
+        output_dir="$2"; shift 2
+        ;;
+      --arch|-a)
+        [[ $# -ge 2 ]] || die "--arch requires a value (example: --arch arm64)"
+        arch_set=1
+        arch="$2"; shift 2
+        ;;
+      --cross)
+        [[ $# -ge 2 ]] || die "--cross requires a value (example: --cross aarch64-linux-gnu-)"
+        cross_set=1
+        cross_compile="$2"; shift 2
+        ;;
+      --defconfig)
+        [[ $# -ge 2 ]] || die "--defconfig requires a value (example: --defconfig defconfig)"
+        defconfig_set=1
+        defconfig_target="$2"; shift 2
+        ;;
+      --kconfig|-K)
+        [[ $# -ge 2 ]] || die "--kconfig requires a file path"
+        kconfig_fragments+=("$2"); shift 2
+        ;;
+      --outtree|--out-of-tree) layout_set=1; build_layout="outtree"; shift ;;
+      --intree) layout_set=1; build_layout="intree"; shift ;;
+      --help|-h)
+        echo "Usage: llbic <VERSION> [--clang VER] [--arch ARCH] [--cross PREFIX] [--defconfig TARGET] [--kconfig FILE ...] [--output DIR] [--json] [--outtree|--intree]"
+        exit 0
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        die "Unknown option: $1"
+        ;;
+      *)
+        if [[ ${saw_kernel_ver} -eq 1 ]]; then
+          die "Too many positional arguments. Expected a single kernel version like: 6.12"
+        fi
+        kernel_ver="$1"
+        saw_kernel_ver=1
+        shift
+        ;;
+    esac
+  done
+
+  [[ -n "${kernel_ver}" ]] || die "Kernel version required. Example: llbic 6.12"
+
+  kernel_ver="${kernel_ver#linux-}"
+  _validate_kernel_version "${kernel_ver}"
+  _validate_clang_version "${clang_version}"
+  [[ -z "${output_dir}" ]] || _require_one_line "output dir" "${output_dir}"
+  _validate_arch "${arch}"
+  [[ -z "${cross_compile}" ]] && cross_compile="$(_default_cross_for_arch "${arch}")"
+  _require_one_line "cross compile" "${cross_compile}"
+  _require_one_line "defconfig" "${defconfig_target}"
+  local frag
+  for frag in "${kconfig_fragments[@]}"; do
+    _require_one_line "kconfig fragment" "${frag}"
+    [[ -f "${frag}" ]] || die "kconfig fragment not found: ${frag}"
+  done
+
+  local kernel_name
+  kernel_name="$(_normalize_kernel_name "${kernel_ver}")"
+  local url=""
+  local -a urls=()
+  mapfile -t urls < <(_kernel_urls "${kernel_ver}")
+  [[ ${#urls[@]} -gt 0 ]] || die "No download URL candidates for kernel version: ${kernel_ver}"
+  url="${urls[0]}"
+  LAST_SOURCE_URL="${url}"
+
+  local tarball=""
+  if [[ -f "${SOURCES_DIR}/${kernel_name}.tar.xz" ]]; then
+    tarball="${SOURCES_DIR}/${kernel_name}.tar.xz"
+  elif [[ -f "${SOURCES_DIR}/${kernel_name}.tar.gz" ]]; then
+    tarball="${SOURCES_DIR}/${kernel_name}.tar.gz"
+  else
+    tarball="$(_tarball_path_for_url "${kernel_name}" "${url}")"
+  fi
+  local kernel_src="${SOURCES_DIR}/${kernel_name}"
+  local build_root="${output_dir:-$(_default_output_dir)}"
+  local bc_output="${build_root}/${kernel_name}"
+  LAST_SOURCE_DIR="${kernel_src}"
+  LAST_OUTPUT_DIR="${bc_output}"
+  LAST_LOG_FILE="${bc_output}/llbic.log"
+  LOG_FILE="${LAST_LOG_FILE}"
+
+  mkdir -p -- "${SOURCES_DIR}" "${build_root}"
+  mkdir -p -- "${bc_output}"
+  : > "${LOG_FILE}"
+
+  # Populate build context for failure reporting.
+  LLBIC_CTX_ACTIVE=1
+  LLBIC_CTX_PHASE="init"
+  LLBIC_CTX_KERNEL_VER="${kernel_ver}"
+  LLBIC_CTX_KERNEL_NAME="${kernel_name}"
+  LLBIC_CTX_KERNEL_SRC="${kernel_src}"
+  LLBIC_CTX_BC_OUTPUT="${bc_output}"
+  LLBIC_CTX_KBUILD_DIR=""
+  LLBIC_CTX_JSON_FILE="${bc_output}/llbic.json"
+  LLBIC_CTX_BC_LIST_FILE="${bc_output}/bitcode_files.txt"
+  LLBIC_CTX_KERNEL_BUILD_LOG="${bc_output}/kernel-build.log"
+  LLBIC_CTX_CLANG=""
+  LLBIC_CTX_LLVM_MAJOR=""
+  LLBIC_CTX_STRATEGY=""
+  LLBIC_CTX_BITCODE_ROOT=""
+  LLBIC_CTX_ARCH="${arch}"
+  LLBIC_CTX_CROSS_COMPILE="${cross_compile}"
+  LLBIC_CTX_DEFCONFIG="${defconfig_target}"
+  LLBIC_CTX_BUILD_LAYOUT="${build_layout}"
+  LLBIC_CTX_CONFIG_PATH=""
+  LLBIC_CTX_CONFIG_SHA256=""
+  LLBIC_CTX_ARCH_IS_DEFAULT=$((arch_set == 0 ? 1 : 0))
+  # "Default cross" means user didn't provide --cross (even if the resulting value is empty).
+  LLBIC_CTX_CROSS_IS_DEFAULT=$((cross_set == 0 ? 1 : 0))
+  LLBIC_CTX_DEFCONFIG_IS_DEFAULT=$((defconfig_set == 0 ? 1 : 0))
+  LLBIC_CTX_LAYOUT_IS_DEFAULT=$((layout_set == 0 ? 1 : 0))
+  LLBIC_CTX_KCONFIG_FRAGMENTS=()
+  for frag in "${kconfig_fragments[@]}"; do
+    # Prefer relative paths in JSON for portability.
+    if command -v realpath >/dev/null 2>&1; then
+      LLBIC_CTX_KCONFIG_FRAGMENTS+=("$(_normalize_path_for_json "$(realpath "${frag}")")")
+    else
+      LLBIC_CTX_KCONFIG_FRAGMENTS+=("$(_normalize_path_for_json "${frag}")")
+    fi
+  done
+
+  # Always emit llbic.json, even on failures (non-zero exit).
+  trap '_finalize_build_artifacts "$?"' EXIT
+
+  _log_step "build.start kernel=${kernel_name} source_url=${url} output_dir=${bc_output}"
+
+  # Step 1: Download
+  LLBIC_CTX_PHASE="download"
+  if [[ -d "${kernel_src}" ]]; then
+    info "Source exists: ${kernel_name}"
+    _log_step "source.reuse path=${kernel_src}"
+  elif [[ -n "${tarball}" && -f "${tarball}" ]]; then
+    info "Tarball exists, extracting..."
+    _log_step "download.skip_tarball path=${tarball}"
+    _log_step "extract.start tarball=${tarball}"
+    tar -xf "${tarball}" -C "${SOURCES_DIR}"
+    _log_step "extract.done source_dir=${kernel_src}"
+  else
+    info "Downloading ${kernel_name}..."
+    local selected_url=""
+    local selected_tarball=""
+    local candidate
+    for candidate in "${urls[@]}"; do
+      local dest
+      dest="$(_tarball_path_for_url "${kernel_name}" "${candidate}")"
+      _log_step "download.try url=${candidate} dest=${dest}"
+      if _download_file "${candidate}" "${dest}"; then
+        selected_url="${candidate}"
+        selected_tarball="${dest}"
+        break
+      fi
+    done
+    [[ -n "${selected_url}" ]] || die "Download failed for all candidate URLs (see llbic.log)"
+    url="${selected_url}"
+    tarball="${selected_tarball}"
+    LAST_SOURCE_URL="${url}"
+    _log_step "download.done url=${url} tarball=${tarball}"
+    info "Extracting..."
+    _log_step "extract.start tarball=${tarball}"
+    tar -xf "${tarball}" -C "${SOURCES_DIR}"
+    _log_step "extract.done source_dir=${kernel_src}"
+  fi
+
+  [[ -d "${kernel_src}" ]] || die "Source not found after extraction: ${kernel_src}"
+
+  # Step 2: Compile
+  LLBIC_CTX_PHASE="compile"
+  local clang
+  clang="$(_resolve_clang "${clang_version}")"
+  command -v "${clang}" >/dev/null 2>&1 || die "${clang} not found"
+
+  local llvm_major
+  llvm_major="$(${clang} --version | grep -oP 'clang version \K[0-9]+')"
+  [[ -z "${clang_version}" ]] && clang_version="${llvm_major}"
+  _log_step "compile.prepare clang=${clang} llvm_major=${llvm_major}"
+  LLBIC_CTX_CLANG="${clang}"
+  LLBIC_CTX_LLVM_MAJOR="${llvm_major}"
+
+  local kbuild_dir=""
+  if [[ "${build_layout}" == "outtree" ]]; then
+    # Keep per-clang build dirs to avoid conflicts when switching toolchains.
+    kbuild_dir="${bc_output}/kbuild-${arch}-clang${clang_version}"
+    mkdir -p -- "${kbuild_dir}"
+    _log_step "compile.layout outtree=1 kbuild_dir=${kbuild_dir}"
+    LLBIC_CTX_KBUILD_DIR="$(_normalize_path_for_json "${kbuild_dir}")"
+  else
+    _log_step "compile.layout outtree=0"
+  fi
+
+  info "Build config: arch=${arch} cross_compile=${cross_compile:-<empty>} defconfig=${defconfig_target} layout=${build_layout}"
+  _log_step "compile.context arch=${arch} arch_default=${LLBIC_CTX_ARCH_IS_DEFAULT} cross=${cross_compile} cross_default=${LLBIC_CTX_CROSS_IS_DEFAULT} defconfig=${defconfig_target} defconfig_default=${LLBIC_CTX_DEFCONFIG_IS_DEFAULT} layout=${build_layout} layout_default=${LLBIC_CTX_LAYOUT_IS_DEFAULT} kconfig_fragments=${#kconfig_fragments[@]}"
+  if [[ ${#kconfig_fragments[@]} -gt 0 ]]; then
+    info "Kconfig fragments: ${#kconfig_fragments[@]}"
+  fi
+
+  local kver
+  kver="$(make -C "${kernel_src}" -s kernelversion 2>/dev/null)" || kver="${kernel_ver}"
+
+  echo "" >&2
+  printf '%s=== %s (%s) — %s (LLVM %s) ===%s\n' "${BOLD}" "${kernel_name}" "${kver}" "${clang}" "${llvm_major}" "${NC}" >&2
+
+  if _version_ge "${kver}" "5.12"; then
+    _log_step "compile.start strategy=lto kernel_version=${kver}"
+    LLBIC_CTX_STRATEGY="lto"
+    LLBIC_CTX_BITCODE_ROOT="${kbuild_dir:-${kernel_src}}"
+    _compile_lto "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${llvm_major}" "${kbuild_dir}" "${arch}" "${cross_compile}" "${defconfig_target}" "${kconfig_fragments[@]}"
+  else
+    _log_step "compile.start strategy=irdumper kernel_version=${kver}"
+    LLBIC_CTX_STRATEGY="irdumper"
+    LLBIC_CTX_BITCODE_ROOT="${kbuild_dir:-${kernel_src}}"
+    _compile_irdumper "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${clang_version}" "${llvm_major}" "${kbuild_dir}" "${arch}" "${cross_compile}" "${defconfig_target}" "${kconfig_fragments[@]}"
+  fi
+
+  echo "" >&2
+  info "Done. Output: ${bc_output}/"
+
+  # Success path: write artifacts now and disable the EXIT trap to avoid double work.
+  trap - EXIT
+  _finalize_build_artifacts 0
+}
+
+# ============================================================
+# download — fetch kernel sources from sources.conf
+# ============================================================
+cmd_download() {
+  mkdir -p "${SOURCES_DIR}"
+  local -a urls=()
+  local item=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --help|-h)
+        echo "Usage: llbic download [VERSION|URL ...]"
+        exit 0
+        ;;
+      *)
+        item="$1"
+        if [[ "${item}" =~ ^https?:// ]]; then
+          urls+=("${item}")
+        else
+          item="${item#linux-}"
+          urls+=("$(_kernel_url "${item}")")
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  if [[ ${#urls[@]} -eq 0 ]]; then
+    [[ -f "${CONF_FILE}" ]] || die "No versions or URLs provided, and ${CONF_FILE} was not found"
+
+    while IFS= read -r line; do
+      [[ -z "${line}" || "${line}" =~ ^[[:space:]]*# ]] && continue
+      urls+=("${line}")
+    done < "${CONF_FILE}"
+  fi
+
+  local url=""
+  for url in "${urls[@]}"; do
+    local file_name
+    file_name="$(basename "${url}")"
+    local output_path="${SOURCES_DIR}/${file_name}"
+
+    if [[ -s "${output_path}" ]]; then
+      info "Skip ${file_name} (exists)"
+      continue
+    fi
+
+    info "Downloading ${file_name}..."
+    _download_file "${url}" "${output_path}"
+  done
+
+  info "Done. Files in: ${SOURCES_DIR}"
+}
+
+# ============================================================
+# extract — decompress kernel archives
+# ============================================================
+cmd_extract() {
+  [[ -d "${SOURCES_DIR}" ]] || die "No sources directory. Run: llbic download"
+
+  for archive in "${SOURCES_DIR}"/*.tar.{xz,gz,bz2}; do
+    [[ -f "${archive}" ]] || continue
+    local file_name
+    file_name="$(basename "${archive}")"
+    local out_name="${file_name%.tar.*}"
+    local out_dir="${SOURCES_DIR}/${out_name}"
+
+    if [[ -d "${out_dir}" ]]; then
+      info "Skip ${file_name} (extracted)"
+      continue
+    fi
+
+    info "Extracting ${file_name}..."
+    tar -xf "${archive}" -C "${SOURCES_DIR}"
+  done
+
+  info "Done."
+}
+
+# ============================================================
+# compile — build kernel(s) to LLVM bitcode
+# ============================================================
+cmd_compile() {
+  local target_kernel=""
+  local clang_version=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --clang|-c) clang_version="$2"; shift 2 ;;
+      --help|-h)  echo "Usage: llbic compile [KERNEL_NAME] [--clang VERSION]"; exit 0 ;;
+      *)          target_kernel="$1"; shift ;;
+    esac
+  done
+
+  [[ -z "${target_kernel}" ]] || target_kernel="$(_normalize_kernel_name "${target_kernel}")"
+
+  local clang
+  clang="$(_resolve_clang "${clang_version}")"
+  command -v "${clang}" >/dev/null 2>&1 || die "${clang} not found"
+
+  local llvm_major
+  llvm_major="$(${clang} --version | grep -oP 'clang version \K[0-9]+')"
+  [[ -z "${clang_version}" ]] && clang_version="${llvm_major}"
+  info "Using: ${clang} (LLVM ${llvm_major})"
+
+  [[ -d "${SOURCES_DIR}" ]] || die "No sources. Run: llbic download && llbic extract"
+
+  local -a trees=()
+  for d in "${SOURCES_DIR}"/linux-*/; do
+    [[ -d "${d}" ]] || continue
+    local name
+    name="$(basename "${d%/}")"
+    if [[ -z "${target_kernel}" || "${name}" == "${target_kernel}" ]]; then
+      trees+=("${d%/}")
+    fi
+  done
+
+  [[ ${#trees[@]} -gt 0 ]] || die "No matching kernel found${target_kernel:+ for '${target_kernel}'}"
+  info "Compiling ${#trees[@]} kernel(s)..."
+  echo "" >&2
+
+  for kernel_src in "${trees[@]}"; do
+    local kernel_name
+    kernel_name="$(basename "${kernel_src}")"
+    local output_dir="${BUILD_DIR}/${kernel_name}"
+    local kver
+    kver="$(make -C "${kernel_src}" -s kernelversion 2>/dev/null)" || kver="unknown"
+
+    printf '%s=== %s (%s) ===%s\n' "${BOLD}" "${kernel_name}" "${kver}" "${NC}" >&2
+
+	    if _version_ge "${kver}" "5.12"; then
+	      _compile_lto "${kernel_src}" "${kernel_name}" "${output_dir}" "${clang}" "${llvm_major}" ""
+	    else
+	      _compile_irdumper "${kernel_src}" "${kernel_name}" "${output_dir}" "${clang}" "${clang_version}" "${llvm_major}" ""
+	    fi
+    echo "" >&2
+  done
+
+  info "Bitcode output in: ${BUILD_DIR}/"
+}
+
+# ============================================================
+# Compile strategies
+# ============================================================
+_compile_lto() {
+  local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" llvm_major="$5" kbuild_dir="${6:-}" arch="${7:-x86_64}" cross_compile="${8:-}" defconfig_target="${9:-defconfig}"
+  shift 9
+  local -a kconfig_fragments=("$@")
+  local -a make_extra=()
+  if [[ -n "${kbuild_dir}" ]]; then
+    make_extra+=(O="${kbuild_dir}")
+  else
+    info "In-tree build: cleaning (make clean)..."
+    make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean > /dev/null 2>&1 || warn "make clean failed; continuing"
+  fi
+
+  info "Strategy: CONFIG_LTO_CLANG_FULL (native LTO)"
+
+  info "Generating defconfig + LTO..."
+  make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    CC="${clang}" LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
+
+  local config_path="${kernel_src}/.config"
+  [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
+
+  LLBIC_CTX_CONFIG_PATH="$(_normalize_path_for_json "${config_path}")"
+
+  _apply_kconfig_fragments "${kernel_src}" "${kbuild_dir}" "${config_path}" "${kconfig_fragments[@]}"
+
+  "${kernel_src}/scripts/config" --file "${config_path}" \
+    --enable LTO_CLANG \
+    --enable LTO_CLANG_FULL \
+    --disable LTO_CLANG_THIN \
+    --disable LTO_NONE \
+    --disable MODVERSIONS
+
+  make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    CC="${clang}" LLVM=1 LLVM_IAS=1 olddefconfig -j"${NPROC}" > /dev/null 2>&1
+
+  LLBIC_CTX_CONFIG_SHA256="$(_sha256_file "${config_path}")"
+  _log_step "kconfig.final path=${config_path} sha256=${LLBIC_CTX_CONFIG_SHA256:-}"
+
+  info "Compiling with ${clang} + full LTO..."
+  make -C "${kernel_src}" \
+    "${make_extra[@]}" \
+    ARCH="${arch}" \
+    ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    CC="${clang}" \
+    LLVM=1 \
+    LLVM_IAS=1 \
+    -j"${NPROC}" \
+    2>&1 | tee "${output_dir}/kernel-build.log"
+
+  local search_root="${kernel_src}"
+  [[ -n "${kbuild_dir}" ]] && search_root="${kbuild_dir}"
+
+  info "Collecting bitcode module list..."
+  _collect_bitcode_files "${search_root}" "lto"
+
+  if [[ ${#LAST_BITCODE_FILES[@]} -eq 0 ]]; then
+    warn "No LLVM bitcode modules were detected under: ${search_root}"
+  fi
+}
+
+_compile_irdumper() {
+  local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" clang_version="$5" llvm_major="$6" kbuild_dir="${7:-}" arch="${8:-x86_64}" cross_compile="${9:-}" defconfig_target="${10:-defconfig}"
+  shift 10
+  local -a kconfig_fragments=("$@")
+  local -a make_extra=()
+  if [[ -n "${kbuild_dir}" ]]; then
+    make_extra+=(O="${kbuild_dir}")
+  else
+    info "In-tree build: cleaning (make clean)..."
+    make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean > /dev/null 2>&1 || warn "make clean failed; continuing"
+  fi
+
+  info "Strategy: IRDumper pass plugin (fallback)"
+
+  local irdumper_so="/opt/IRDumper/${clang_version}/libDumper.so"
+  [[ -f "${irdumper_so}" ]] || die "IRDumper not found: ${irdumper_so}"
+
+  local dumper_flags
+  if [[ "${llvm_major}" -ge 17 ]]; then
+    dumper_flags="-Wno-error -g -fpass-plugin=${irdumper_so}"
+  elif [[ "${llvm_major}" -ge 15 ]]; then
+    dumper_flags="-Wno-error -g -Xclang -no-opaque-pointers -fpass-plugin=${irdumper_so}"
+  elif [[ "${llvm_major}" -ge 14 ]]; then
+    dumper_flags="-Wno-error -g -fpass-plugin=${irdumper_so}"
+  else
+    dumper_flags="-Wno-error -g -Xclang -flegacy-pass-manager -Xclang -load -Xclang ${irdumper_so}"
+  fi
+
+  info "IRDumper: ${irdumper_so}"
+
+  local kernel_makefile="${kernel_src}/Makefile"
+  local marker="# --- IRDumper flags (auto-injected) ---"
+
+  info "Generating defconfig..."
+  make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    CC="${clang}" LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
+
+  local config_path="${kernel_src}/.config"
+  [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
+  LLBIC_CTX_CONFIG_PATH="$(_normalize_path_for_json "${config_path}")"
+  _apply_kconfig_fragments "${kernel_src}" "${kbuild_dir}" "${config_path}" "${kconfig_fragments[@]}"
+
+  if ! grep -qF "${marker}" "${kernel_makefile}"; then
+    cat >> "${kernel_makefile}" <<EOF
+
+${marker}
+KBUILD_USERCFLAGS += ${dumper_flags}
+KBUILD_CFLAGS += ${dumper_flags}
+EOF
+  fi
+
+  info "Compiling with ${clang} + IRDumper..."
+  make -C "${kernel_src}" \
+    "${make_extra[@]}" \
+    ARCH="${arch}" \
+    ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    CC="${clang}" \
+    LLVM=1 \
+    LLVM_IAS=1 \
+    -j"${NPROC}" \
+    2>&1 | tee "${output_dir}/kernel-build.log"
+
+  LLBIC_CTX_CONFIG_SHA256="$(_sha256_file "${config_path}")"
+  _log_step "kconfig.final path=${config_path} sha256=${LLBIC_CTX_CONFIG_SHA256:-}"
+
+  # Restore Makefile
+  if grep -qF "${marker}" "${kernel_makefile}"; then
+    local marker_line
+    marker_line="$(grep -nF "${marker}" "${kernel_makefile}" | head -1 | cut -d: -f1)"
+    head -n "$((marker_line - 2))" "${kernel_makefile}" > "${kernel_makefile}.tmp"
+    mv "${kernel_makefile}.tmp" "${kernel_makefile}"
+  fi
+
+  local search_root="${kernel_src}"
+  [[ -n "${kbuild_dir}" ]] && search_root="${kbuild_dir}"
+
+  info "Collecting bitcode module list..."
+  _collect_bitcode_files "${search_root}" "irdumper"
+
+  if [[ ${#LAST_BITCODE_FILES[@]} -eq 0 ]]; then
+    warn "No LLVM bitcode modules were detected under: ${search_root}"
+  fi
+}
+
+# ============================================================
+# list — show available kernels and bitcode
+# ============================================================
+cmd_list() {
+  printf '%sKernel sources:%s\n' "${BOLD}" "${NC}"
+  if [[ -d "${SOURCES_DIR}" ]]; then
+    for d in "${SOURCES_DIR}"/linux-*/; do
+      [[ -d "${d}" ]] || continue
+      local name
+      name="$(basename "${d}")"
+      local kver
+      kver="$(make -C "${d}" -s kernelversion 2>/dev/null)" || kver="?"
+      echo "  ${name} (${kver})"
+    done
+  else
+    echo "  (none)"
+  fi
+
+  echo ""
+  printf '%sBitcode output:%s\n' "${BOLD}" "${NC}"
+  if [[ -d "${BUILD_DIR}" ]]; then
+    for d in "${BUILD_DIR}"/*/; do
+      [[ -d "${d}" ]] || continue
+      local name
+      name="$(basename "${d}")"
+      local count
+      count="$(find "${d}" -name '*.bc' | wc -l)"
+      local vmlinux=""
+      [[ -f "${d}/vmlinux.bc" ]] && vmlinux=" (vmlinux.bc)"
+      echo "  ${name}: ${count} .bc files${vmlinux}"
+    done
+  else
+    echo "  (none)"
+  fi
+}
+
+# ============================================================
+# clean — remove build artifacts
+# ============================================================
+cmd_clean() {
+  local target="${1:-build}"
+
+  case "${target}" in
+    build)
+      [[ -d "${BUILD_DIR}" ]] && rm -rf -- "${BUILD_DIR}" && info "Removed ${BUILD_DIR}" || info "Nothing to clean."
+      ;;
+    sources)
+      [[ -d "${SOURCES_DIR}" ]] && rm -rf -- "${SOURCES_DIR}" && info "Removed ${SOURCES_DIR}" || info "Nothing to clean."
+      ;;
+    all) cmd_clean build; cmd_clean sources ;;
+    *)   die "Unknown target: ${target}. Use: build, sources, all" ;;
+  esac
+}
+
+# ============================================================
+# help
+# ============================================================
+cmd_help() {
+  cat <<EOF
+${BOLD}llbic${NC} — Compile Linux kernels to LLVM bitcode
+
+${BOLD}Usage:${NC}
+  llbic <version> [--clang VER] [--arch ARCH] [--cross PREFIX] [--defconfig TARGET] [--output DIR] [--json] [--outtree|--intree]
+  llbic --json <version> [--clang VER] [--arch ARCH] [--cross PREFIX] [--defconfig TARGET] [--output DIR] [--outtree|--intree]
+                                       One-shot: download, extract, compile
+
+${BOLD}Examples:${NC}
+  llbic 6.12                          # compile kernel 6.12 to bitcode
+  llbic 6.12 --clang 18               # use clang-18
+  llbic 6.12 --arch arm64             # build for ARM64
+  llbic 6.12 --arch arm64 --cross aarch64-linux-gnu-   # override CROSS_COMPILE
+  llbic 6.12 --defconfig tinyconfig    # use a different Kbuild config target
+  llbic 6.12 -K ./my.fragment -K ./more.fragment       # merge Kconfig fragments
+  llbic 6.12 -c 18 -o /tmp/out        # output to a custom directory
+  llbic 6.12 --json                   # print JSON summary to stdout (also writes llbic.json)
+  llbic 6.12 --outtree                # out-of-tree build (avoids toolchain conflicts)
+
+${BOLD}Build layout:${NC}
+  --outtree, --out-of-tree            Build with O=<out dir> (recommended)
+  --intree                            Build in the source tree (default; runs make clean)
+
+${BOLD}Architecture:${NC}
+  --arch, -a ARCH                     x86_64 (default), arm, arm64, mips, riscv
+  --cross PREFIX                      CROSS_COMPILE prefix (defaults per arch when known)
+  --defconfig TARGET                  Kbuild config target (default: defconfig)
+  --kconfig, -K FILE                  Kconfig fragment to merge into .config (repeatable)
+
+${BOLD}Output:${NC}
+  out/linux-<ver>/llbic.log            End-to-end run log
+  out/linux-<ver>/kernel-build.log     Kernel build output
+  out/linux-<ver>/llbic.json           Machine-readable summary (includes arch/config metadata)
+  out/linux-<ver>/bitcode_files.txt    Bitcode file list (relative paths under bitcode_root)
+
+${BOLD}Docker:${NC}
+  docker run --rm -v \$(pwd)/out:/out ghcr.io/cyruscyliu/llbic:latest 6.12
+  # writes to ./out/linux-6.12/ automatically when /out is mounted
+
+EOF
+}
+
+# ============================================================
+# Main dispatch
+# ============================================================
+main() {
+  if [[ "${1:-}" == "--json" ]]; then
+    JSON_OUTPUT=1
+    shift
+  fi
+
+  local cmd="${1:-help}"
+  shift || true
+
+  case "${cmd}" in
+    version|--version|-v) echo "llbic ${VERSION}" ;;
+    help|--help|-h)       cmd_help ;;
+    # Treat any non-option token as the kernel version.
+    -*)
+      error "Unknown option: ${cmd}"
+      echo ""
+      cmd_help
+      exit 1
+      ;;
+    *)
+      cmd_build "${cmd}" "$@"
+      ;;
+  esac
+}
+
+main "$@"
