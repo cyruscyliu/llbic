@@ -1,76 +1,120 @@
-# LLBIC: LLVM Linux Build Issues Collection
+# llbic
 
-Performing static analysis with clang on Linux kernel source code requires LLVM
-bitcode. While the latest Linux kernel supports clang, we still have troubles
-compiling old Linux kernels. Ad-hoc solutions are all over the internet, in a
-blog, in commit comments, etc. This project is then aiming to put these
-solutions together as a `build issues collection`.
+Compile Linux kernels to LLVM bitcode.
 
-Furthermore, this project can help compile old Linux kernels in LLVM bitcode.
-It replaces GCC to clang and adjusts other flags in the make command lines to
-generate bitcode files, and then links them all together to a `vmlinux.bc`. The
-initial idea was inspired by
-[dr_checker](https://github.com/ucsb-seclab/dr_checker) ([port dr_checker to
-clang9](./doc/port-dr_checker-2-clang-9.md)). Other approaches that support the
-latest Linux kernel are [WLLVM and LTO](./doc/backgroud.md), which is not
-included in this project.
+## Quick start
 
-```
-+--+   gcc    +-----------+   llbic   +---+
-+.c+  ----->  +makeout.txt+  -------> +.bc+
-+--+          +-----------+           +---+
+Docker is the default workflow:
+
+```bash
+docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:latest 6.12
 ```
 
-# Usage
+This downloads the kernel source, builds it, and writes output to:
 
-## Create docker and Run
-
-```
-sudo docker build . -t llbic:latest
-sudo docker-compose up -d
-sudo docker-compose run --rm llbic /bin/bash
-sudo docker-compose down
+```text
+out/linux-6.12/
+  llbic.log
+  vmlinux.bc
+  *.bc
 ```
 
-## Compile, Patch, ReCompile, and Link
+Use `--clang` to pick a toolchain:
 
-To apply LLBIC, you have to download the Linux kernel source code and
-(cross-)compilers, and manage to build the Linux kernel to get a `makeout.txt`.
-
-```
-bash -x download-kernel.sh
-apt-get install -y crossbuild-essential-armel
-cd linux-x.x.x
-make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- orion5x_defconfig
-make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- V=1 > makeout.txt
+```bash
+docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:latest 6.12 --clang 18
 ```
 
-Examples are in the following.
+For agents, use JSON output:
 
-```
-./llbic.py -a arm -s linux-4.4.42 -mo linux-4.4.42/makeout.txt -o linux-4.4.42-llvm-bitcode patch
-./llbic.py -a arm -s linux-4.4.42 -mo linux-4.4.42/makeout.txt -o linux-4.4.42-llvm-bitcode compile
-./llbic.py -a arm -s linux-4.4.42 -mo linux-4.4.42/makeout.txt -o linux-4.4.42-llvm-bitcode link
-
-./llbic.py -a arm -s linux-4.14.167 -mo linux-4.14.167/makeout.txt -o linux-4.14.167-llvm-bitcode patch
-./llbic.py -a arm -s linux-4.14.167 -mo linux-4.14.167/makeout.txt -o linux-4.14.167-llvm-bitcode compile
-./llbic.py -a arm -s linux-4.14.167 -mo linux-4.14.167/makeout.txt -o linux-4.14.167-llvm-bitcode link
+```bash
+docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:latest 6.12 --json
 ```
 
-## Support List
+Example response:
 
-Because LLBIC is part of [FirmGuide](https://github.com/cyruscyliu/firmguide),
-we now support ARM and MIPS Linux 2.6.32
-[patch](./patches/2.6.32/linux-2.6.32.sh), 3.18.20
-[patch](./patches/3.18.20/linux-3.18.20.sh), 4.4.42
-[patch](./patches/4.4.42/linux-4.4.42.sh), 4.14.167
-[patch](./patches/4.14.167/linux-4.14.167.sh). A next plan is on demand if there
-is any requirement from both academia and industry.
+```json
+{
+  "status": "success",
+  "kernel_version": "6.12",
+  "kernel_name": "linux-6.12",
+  "source_url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.tar.xz",
+  "source_dir": "/home/llbic/sources/linux-6.12",
+  "output_dir": "/out/linux-6.12",
+  "log_file": "/out/linux-6.12/llbic.log",
+  "clang": "clang",
+  "llvm_major": "18",
+  "bitcode_files": [
+    "/out/linux-6.12/vmlinux.bc"
+  ],
+  "bitcode_count": 1,
+  "vmlinux_bc": "/out/linux-6.12/vmlinux.bc",
+  "kernel_images": [
+    "/home/llbic/sources/linux-6.12/vmlinux"
+  ]
+}
+```
 
-## Authors
+## Images
 
-[Qiang Liu](https://github.com/cyruscyliu), and [Cen Zhang](https://github.com/occia)
+Use the image that matches the kernel era:
 
-## Contact
+| Image | Kernels | Clang |
+|---|---|---|
+| `ghcr.io/cyruscyliu/llbic:latest` | 6.x, 7.x | 14, 15, 16, 18 |
+| `ghcr.io/cyruscyliu/llbic:mid` | 4.x, 5.x | 8, 9, 10, 11, 12 |
+| `ghcr.io/cyruscyliu/llbic:legacy` | 2.6, 3.x | 6.0, 7, 8 |
 
-If you have any problems, please fire issues!
+Examples:
+
+```bash
+docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:latest 6.12
+docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:mid 5.15 --clang 12
+docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:legacy 3.18 --clang 8
+```
+
+## Local usage
+
+```bash
+./llbic 6.12
+./llbic 6.12 --clang 18
+./llbic 6.12 --output ./out
+./llbic --json 6.12
+```
+
+Each one-shot run writes a timestamped end-to-end log to
+`out/linux-<version>/llbic.log`.
+
+## CLI
+
+```text
+llbic <version> [--clang VER] [--output DIR] [--json]
+llbic <command> [options]
+```
+
+Commands:
+
+- `build <VERSION>`: download, extract, compile
+- `compile [KERNEL]`: compile extracted sources
+- `download [VERSION|URL]`: fetch sources directly
+- `extract`: unpack archives
+- `list`: show sources and outputs
+- `clean [TARGET]`: remove `build`, `sources`, or both
+- `version`: print version
+
+## Build images
+
+```bash
+docker compose build llbic
+docker compose build llbic-mid
+docker compose build llbic-legacy
+```
+
+## Notes
+
+- `sources.conf` is optional and only used as a fallback for `llbic download`.
+- Older patch-heavy flows still exist in `llbic.py`.
+
+## License
+
+See [LICENSE](LICENSE).

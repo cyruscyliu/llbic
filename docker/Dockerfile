@@ -77,10 +77,18 @@ RUN python3 -m pip install --break-system-packages \
       networkx \
       graphviz
 
-RUN apt-get update && apt-get install -y --no-install-recommends sudo \
+# Install llbic CLI
+COPY llbic /usr/local/bin/llbic
+RUN chmod +x /usr/local/bin/llbic
+
+RUN apt-get update && apt-get install -y --no-install-recommends sudo file \
       && rm -rf /var/lib/apt/lists/* \
       && useradd -m -s /bin/bash llbic \
       && echo "llbic ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/llbic
 
+LABEL org.opencontainers.image.source="https://github.com/cyruscyliu/llbic"
+LABEL org.opencontainers.image.description="Compile Linux kernels to LLVM bitcode (recent: 6.x/7.x)"
+
 USER llbic
 WORKDIR /home/llbic
+ENTRYPOINT ["llbic"]

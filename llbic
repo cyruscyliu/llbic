@@ -1,0 +1,658 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="0.1.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCES_DIR="${LLBIC_SOURCES:-${SCRIPT_DIR}/sources}"
+BUILD_DIR="${LLBIC_OUTPUT:-${SCRIPT_DIR}/build}"
+CONF_FILE="${SCRIPT_DIR}/sources.conf"
+NPROC="${NPROC:-$(nproc)}"
+JSON_OUTPUT=0
+LAST_SOURCE_URL=""
+LAST_SOURCE_DIR=""
+LAST_OUTPUT_DIR=""
+LAST_VMLINUX_BC=""
+LAST_LOG_FILE=""
+LAST_KERNEL_IMAGES=()
+LAST_BITCODE_FILES=()
+LOG_FILE=""
+
+# --- Colors ---
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+info()  { echo -e "${GREEN}[+]${NC} $*" >&2; }
+warn()  { echo -e "${YELLOW}[!]${NC} $*" >&2; }
+error() { echo -e "${RED}[-]${NC} $*" >&2; }
+die()   { error "$@"; exit 1; }
+
+# ============================================================
+# Helpers
+# ============================================================
+_version_ge() {
+  printf '%s\n%s' "$2" "$1" | sort -V -C
+}
+
+_resolve_clang() {
+  local ver="${1:-}"
+  if [[ -n "${ver}" ]]; then
+    echo "clang-${ver}"
+  else
+    echo "clang"
+  fi
+}
+
+_kernel_url() {
+  local ver="$1"
+  local major="${ver%%.*}"
+  echo "https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${ver}.tar.xz"
+}
+
+_normalize_kernel_name() {
+  local value="$1"
+  value="${value#linux-}"
+  echo "linux-${value}"
+}
+
+_default_output_dir() {
+  if [[ -d "/out" ]]; then
+    echo "/out"
+  else
+    echo "${BUILD_DIR}"
+  fi
+}
+
+_timestamp() {
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+_log_step() {
+  [[ -n "${LOG_FILE}" ]] || return 0
+  printf '[%s] %s\n' "$(_timestamp)" "$*" >> "${LOG_FILE}"
+}
+
+_json_escape() {
+  local value="${1:-}"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "${value}"
+}
+
+_json_array() {
+  local -n items_ref=$1
+  local first=1
+  printf '['
+  local item
+  for item in "${items_ref[@]}"; do
+    [[ ${first} -eq 1 ]] || printf ','
+    first=0
+    printf '"%s"' "$(_json_escape "${item}")"
+  done
+  printf ']'
+}
+
+_collect_bitcode_files() {
+  local output_dir="$1"
+  LAST_BITCODE_FILES=()
+  [[ -d "${output_dir}" ]] || return 0
+
+  while IFS= read -r file; do
+    LAST_BITCODE_FILES+=("${file}")
+  done < <(find "${output_dir}" -maxdepth 1 -type f -name '*.bc' | sort)
+
+  if [[ -f "${output_dir}/vmlinux.bc" ]]; then
+    LAST_VMLINUX_BC="${output_dir}/vmlinux.bc"
+  else
+    LAST_VMLINUX_BC=""
+  fi
+}
+
+_collect_kernel_images() {
+  local kernel_src="$1"
+  LAST_KERNEL_IMAGES=()
+  [[ -d "${kernel_src}" ]] || return 0
+
+  local -a candidates=(
+    "${kernel_src}/vmlinux"
+    "${kernel_src}/arch/x86/boot/bzImage"
+    "${kernel_src}/arch/x86/boot/compressed/vmlinux"
+    "${kernel_src}/arch/arm/boot/zImage"
+    "${kernel_src}/arch/arm/boot/Image"
+    "${kernel_src}/arch/arm64/boot/Image"
+    "${kernel_src}/arch/arm64/boot/Image.gz"
+    "${kernel_src}/arch/mips/boot/vmlinux.bin"
+    "${kernel_src}/arch/mips/boot/compressed/vmlinuz"
+    "${kernel_src}/arch/riscv/boot/Image"
+  )
+
+  local image
+  for image in "${candidates[@]}"; do
+    [[ -f "${image}" ]] && LAST_KERNEL_IMAGES+=("${image}")
+  done
+}
+
+_emit_build_json() {
+  local kernel_ver="$1"
+  local kernel_name="$2"
+  local clang="$3"
+  local llvm_major="$4"
+
+  printf '{'
+  printf '"status":"success",'
+  printf '"kernel_version":"%s",' "$(_json_escape "${kernel_ver}")"
+  printf '"kernel_name":"%s",' "$(_json_escape "${kernel_name}")"
+  printf '"source_url":"%s",' "$(_json_escape "${LAST_SOURCE_URL}")"
+  printf '"source_dir":"%s",' "$(_json_escape "${LAST_SOURCE_DIR}")"
+  printf '"output_dir":"%s",' "$(_json_escape "${LAST_OUTPUT_DIR}")"
+  printf '"log_file":"%s",' "$(_json_escape "${LAST_LOG_FILE}")"
+  printf '"clang":"%s",' "$(_json_escape "${clang}")"
+  printf '"llvm_major":"%s",' "$(_json_escape "${llvm_major}")"
+  printf '"bitcode_files":'
+  _json_array LAST_BITCODE_FILES
+  printf ','
+  printf '"bitcode_count":%s,' "${#LAST_BITCODE_FILES[@]}"
+  if [[ -n "${LAST_VMLINUX_BC}" ]]; then
+    printf '"vmlinux_bc":"%s",' "$(_json_escape "${LAST_VMLINUX_BC}")"
+  else
+    printf '"vmlinux_bc":null,'
+  fi
+  printf '"kernel_images":'
+  _json_array LAST_KERNEL_IMAGES
+  printf '}'
+  printf '\n'
+}
+
+_download_file() {
+  local url="$1" dest="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 3 --retry-delay 2 -o "${dest}" "${url}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "${dest}" "${url}"
+  else
+    die "Neither curl nor wget is installed"
+  fi
+}
+
+# ============================================================
+# build — one-shot: download + extract + compile
+# ============================================================
+cmd_build() {
+  local kernel_ver=""
+  local clang_version=""
+  local output_dir=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --clang|-c)  clang_version="$2"; shift 2 ;;
+      --json)      JSON_OUTPUT=1; shift ;;
+      --output|-o) output_dir="$2"; shift 2 ;;
+      --help|-h)   echo "Usage: llbic build <VERSION> [--clang VER] [--output DIR] [--json]"; exit 0 ;;
+      *)           kernel_ver="$1"; shift ;;
+    esac
+  done
+
+  [[ -n "${kernel_ver}" ]] || die "Kernel version required. Example: llbic build 6.12"
+
+  kernel_ver="${kernel_ver#linux-}"
+
+  local kernel_name
+  kernel_name="$(_normalize_kernel_name "${kernel_ver}")"
+  local url
+  url="$(_kernel_url "${kernel_ver}")"
+  LAST_SOURCE_URL="${url}"
+  local tarball="${SOURCES_DIR}/${kernel_name}.tar.xz"
+  local kernel_src="${SOURCES_DIR}/${kernel_name}"
+  local build_root="${output_dir:-$(_default_output_dir)}"
+  local bc_output="${build_root}/${kernel_name}"
+  LAST_SOURCE_DIR="${kernel_src}"
+  LAST_OUTPUT_DIR="${bc_output}"
+  LAST_LOG_FILE="${bc_output}/llbic.log"
+  LOG_FILE="${LAST_LOG_FILE}"
+
+  mkdir -p "${SOURCES_DIR}" "${build_root}"
+  mkdir -p "${bc_output}"
+  : > "${LOG_FILE}"
+  _log_step "build.start kernel=${kernel_name} source_url=${url} output_dir=${bc_output}"
+
+  # Step 1: Download
+  if [[ -d "${kernel_src}" ]]; then
+    info "Source exists: ${kernel_name}"
+    _log_step "source.reuse path=${kernel_src}"
+  elif [[ -f "${tarball}" ]]; then
+    info "Tarball exists, extracting..."
+    _log_step "download.skip_tarball path=${tarball}"
+    _log_step "extract.start tarball=${tarball}"
+    tar -xf "${tarball}" -C "${SOURCES_DIR}"
+    _log_step "extract.done source_dir=${kernel_src}"
+  else
+    info "Downloading ${kernel_name}..."
+    _log_step "download.start url=${url} dest=${tarball}"
+    _download_file "${url}" "${tarball}"
+    _log_step "download.done tarball=${tarball}"
+    info "Extracting..."
+    _log_step "extract.start tarball=${tarball}"
+    tar -xf "${tarball}" -C "${SOURCES_DIR}"
+    _log_step "extract.done source_dir=${kernel_src}"
+  fi
+
+  [[ -d "${kernel_src}" ]] || die "Source not found after extraction: ${kernel_src}"
+
+  # Step 2: Compile
+  local clang
+  clang="$(_resolve_clang "${clang_version}")"
+  command -v "${clang}" >/dev/null 2>&1 || die "${clang} not found"
+
+  local llvm_major
+  llvm_major="$(${clang} --version | grep -oP 'clang version \K[0-9]+')"
+  [[ -z "${clang_version}" ]] && clang_version="${llvm_major}"
+  _log_step "compile.prepare clang=${clang} llvm_major=${llvm_major}"
+
+  local kver
+  kver="$(make -C "${kernel_src}" -s kernelversion 2>/dev/null)" || kver="${kernel_ver}"
+
+  echo "" >&2
+  echo -e "${BOLD}=== ${kernel_name} (${kver}) — ${clang} (LLVM ${llvm_major}) ===${NC}" >&2
+
+  if _version_ge "${kver}" "5.12"; then
+    _log_step "compile.start strategy=lto kernel_version=${kver}"
+    _compile_lto "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${llvm_major}"
+  else
+    _log_step "compile.start strategy=irdumper kernel_version=${kver}"
+    _compile_irdumper "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${clang_version}" "${llvm_major}"
+  fi
+
+  echo "" >&2
+  info "Done. Output: ${bc_output}/"
+  [[ -f "${bc_output}/vmlinux.bc" ]] && info "vmlinux.bc: ${bc_output}/vmlinux.bc"
+  _collect_bitcode_files "${bc_output}"
+  _collect_kernel_images "${kernel_src}"
+  _log_step "compile.done bitcode_count=${#LAST_BITCODE_FILES[@]}"
+  if [[ ${#LAST_KERNEL_IMAGES[@]} -gt 0 ]]; then
+    info "kernel images: ${#LAST_KERNEL_IMAGES[@]}"
+    _log_step "kernel_images.detected count=${#LAST_KERNEL_IMAGES[@]}"
+  fi
+  [[ -n "${LAST_VMLINUX_BC}" ]] && _log_step "bitcode.primary path=${LAST_VMLINUX_BC}"
+  _log_step "build.done log_file=${LOG_FILE}"
+  if [[ "${JSON_OUTPUT}" -eq 1 ]]; then
+    _emit_build_json "${kernel_ver}" "${kernel_name}" "${clang}" "${llvm_major}"
+  fi
+}
+
+# ============================================================
+# download — fetch kernel sources from sources.conf
+# ============================================================
+cmd_download() {
+  mkdir -p "${SOURCES_DIR}"
+  local -a urls=()
+  local item=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --help|-h)
+        echo "Usage: llbic download [VERSION|URL ...]"
+        exit 0
+        ;;
+      *)
+        item="$1"
+        if [[ "${item}" =~ ^https?:// ]]; then
+          urls+=("${item}")
+        else
+          item="${item#linux-}"
+          urls+=("$(_kernel_url "${item}")")
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  if [[ ${#urls[@]} -eq 0 ]]; then
+    [[ -f "${CONF_FILE}" ]] || die "No versions or URLs provided, and ${CONF_FILE} was not found"
+
+    while IFS= read -r line; do
+      [[ -z "${line}" || "${line}" =~ ^[[:space:]]*# ]] && continue
+      urls+=("${line}")
+    done < "${CONF_FILE}"
+  fi
+
+  local url=""
+  for url in "${urls[@]}"; do
+    local file_name
+    file_name="$(basename "${url}")"
+    local output_path="${SOURCES_DIR}/${file_name}"
+
+    if [[ -s "${output_path}" ]]; then
+      info "Skip ${file_name} (exists)"
+      continue
+    fi
+
+    info "Downloading ${file_name}..."
+    _download_file "${url}" "${output_path}"
+  done
+
+  info "Done. Files in: ${SOURCES_DIR}"
+}
+
+# ============================================================
+# extract — decompress kernel archives
+# ============================================================
+cmd_extract() {
+  [[ -d "${SOURCES_DIR}" ]] || die "No sources directory. Run: llbic download"
+
+  for archive in "${SOURCES_DIR}"/*.tar.{xz,gz,bz2}; do
+    [[ -f "${archive}" ]] || continue
+    local file_name
+    file_name="$(basename "${archive}")"
+    local out_name="${file_name%.tar.*}"
+    local out_dir="${SOURCES_DIR}/${out_name}"
+
+    if [[ -d "${out_dir}" ]]; then
+      info "Skip ${file_name} (extracted)"
+      continue
+    fi
+
+    info "Extracting ${file_name}..."
+    tar -xf "${archive}" -C "${SOURCES_DIR}"
+  done
+
+  info "Done."
+}
+
+# ============================================================
+# compile — build kernel(s) to LLVM bitcode
+# ============================================================
+cmd_compile() {
+  local target_kernel=""
+  local clang_version=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --clang|-c) clang_version="$2"; shift 2 ;;
+      --help|-h)  echo "Usage: llbic compile [KERNEL_NAME] [--clang VERSION]"; exit 0 ;;
+      *)          target_kernel="$1"; shift ;;
+    esac
+  done
+
+  [[ -z "${target_kernel}" ]] || target_kernel="$(_normalize_kernel_name "${target_kernel}")"
+
+  local clang
+  clang="$(_resolve_clang "${clang_version}")"
+  command -v "${clang}" >/dev/null 2>&1 || die "${clang} not found"
+
+  local llvm_major
+  llvm_major="$(${clang} --version | grep -oP 'clang version \K[0-9]+')"
+  [[ -z "${clang_version}" ]] && clang_version="${llvm_major}"
+  info "Using: ${clang} (LLVM ${llvm_major})"
+
+  [[ -d "${SOURCES_DIR}" ]] || die "No sources. Run: llbic download && llbic extract"
+
+  local -a trees=()
+  for d in "${SOURCES_DIR}"/linux-*/; do
+    [[ -d "${d}" ]] || continue
+    local name
+    name="$(basename "${d%/}")"
+    if [[ -z "${target_kernel}" || "${name}" == "${target_kernel}" ]]; then
+      trees+=("${d%/}")
+    fi
+  done
+
+  [[ ${#trees[@]} -gt 0 ]] || die "No matching kernel found${target_kernel:+ for '${target_kernel}'}"
+  info "Compiling ${#trees[@]} kernel(s)..."
+  echo "" >&2
+
+  for kernel_src in "${trees[@]}"; do
+    local kernel_name
+    kernel_name="$(basename "${kernel_src}")"
+    local output_dir="${BUILD_DIR}/${kernel_name}"
+    local kver
+    kver="$(make -C "${kernel_src}" -s kernelversion 2>/dev/null)" || kver="unknown"
+
+    echo -e "${BOLD}=== ${kernel_name} (${kver}) ===${NC}" >&2
+
+    if _version_ge "${kver}" "5.12"; then
+      _compile_lto "${kernel_src}" "${kernel_name}" "${output_dir}" "${clang}" "${llvm_major}"
+    else
+      _compile_irdumper "${kernel_src}" "${kernel_name}" "${output_dir}" "${clang}" "${clang_version}" "${llvm_major}"
+    fi
+    echo "" >&2
+  done
+
+  info "Bitcode output in: ${BUILD_DIR}/"
+}
+
+# ============================================================
+# Compile strategies
+# ============================================================
+_compile_lto() {
+  local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" llvm_major="$5"
+
+  info "Strategy: CONFIG_LTO_CLANG_FULL (native LTO)"
+
+  info "Generating defconfig + LTO..."
+  make -C "${kernel_src}" CC="${clang}" LLVM=1 defconfig -j"${NPROC}" > /dev/null 2>&1
+
+  "${kernel_src}/scripts/config" --file "${kernel_src}/.config" \
+    --enable LTO_CLANG \
+    --enable LTO_CLANG_FULL \
+    --disable LTO_CLANG_THIN \
+    --disable LTO_NONE \
+    --disable MODVERSIONS
+
+  make -C "${kernel_src}" CC="${clang}" LLVM=1 olddefconfig -j"${NPROC}" > /dev/null 2>&1
+
+  info "Compiling with ${clang} + full LTO..."
+  make -C "${kernel_src}" \
+    CC="${clang}" \
+    LLVM=1 \
+    -j"${NPROC}" \
+    2>&1 | tee "${SOURCES_DIR}/${kernel_name}-build.log"
+
+  info "Collecting bitcode..."
+  mkdir -p "${output_dir}"
+
+  local bc_count=0
+  while IFS= read -r -d '' obj; do
+    if file "${obj}" | grep -q "LLVM IR bitcode"; then
+      cp "${obj}" "${output_dir}/$(basename "${obj}" .o).bc"
+      ((bc_count++))
+    fi
+  done < <(find "${kernel_src}" -name '*.o' -print0)
+
+  if [[ ${bc_count} -gt 0 ]]; then
+    info "Linking ${bc_count} .bc files into vmlinux.bc..."
+    find "${output_dir}" -name '*.bc' | \
+      xargs llvm-link -o "${output_dir}/vmlinux.bc" 2>/dev/null || \
+      warn "llvm-link failed (may need more memory)"
+  fi
+
+  info "Collected ${bc_count} bitcode files in ${output_dir}"
+}
+
+_compile_irdumper() {
+  local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" clang_version="$5" llvm_major="$6"
+
+  info "Strategy: IRDumper pass plugin (fallback)"
+
+  local irdumper_so="/opt/IRDumper/${clang_version}/libDumper.so"
+  [[ -f "${irdumper_so}" ]] || die "IRDumper not found: ${irdumper_so}"
+
+  local dumper_flags
+  if [[ "${llvm_major}" -ge 17 ]]; then
+    dumper_flags="-Wno-error -g -fpass-plugin=${irdumper_so}"
+  elif [[ "${llvm_major}" -ge 15 ]]; then
+    dumper_flags="-Wno-error -g -Xclang -no-opaque-pointers -fpass-plugin=${irdumper_so}"
+  elif [[ "${llvm_major}" -ge 14 ]]; then
+    dumper_flags="-Wno-error -g -fpass-plugin=${irdumper_so}"
+  else
+    dumper_flags="-Wno-error -g -Xclang -flegacy-pass-manager -Xclang -load -Xclang ${irdumper_so}"
+  fi
+
+  info "IRDumper: ${irdumper_so}"
+
+  local kernel_makefile="${kernel_src}/Makefile"
+  local marker="# --- IRDumper flags (auto-injected) ---"
+
+  info "Generating defconfig..."
+  make -C "${kernel_src}" CC="${clang}" LLVM=1 defconfig -j"${NPROC}" > /dev/null 2>&1
+
+  if ! grep -qF "${marker}" "${kernel_makefile}"; then
+    cat >> "${kernel_makefile}" <<EOF
+
+${marker}
+KBUILD_USERCFLAGS += ${dumper_flags}
+KBUILD_CFLAGS += ${dumper_flags}
+EOF
+  fi
+
+  info "Compiling with ${clang} + IRDumper..."
+  make -C "${kernel_src}" \
+    CC="${clang}" \
+    LLVM=1 \
+    -j"${NPROC}" \
+    2>&1 | tee "${SOURCES_DIR}/${kernel_name}-build.log"
+
+  # Restore Makefile
+  if grep -qF "${marker}" "${kernel_makefile}"; then
+    local marker_line
+    marker_line="$(grep -nF "${marker}" "${kernel_makefile}" | head -1 | cut -d: -f1)"
+    head -n "$((marker_line - 2))" "${kernel_makefile}" > "${kernel_makefile}.tmp"
+    mv "${kernel_makefile}.tmp" "${kernel_makefile}"
+  fi
+
+  info "Collecting .bc files..."
+  mkdir -p "${output_dir}"
+  find "${kernel_src}" -name '*.bc' -exec cp {} "${output_dir}/" \;
+
+  local bc_count
+  bc_count="$(find "${output_dir}" -name '*.bc' | wc -l)"
+
+  if [[ ${bc_count} -gt 0 ]]; then
+    info "Linking ${bc_count} .bc files into vmlinux.bc..."
+    find "${output_dir}" -name '*.bc' ! -name 'vmlinux.bc' | \
+      xargs llvm-link -o "${output_dir}/vmlinux.bc" 2>/dev/null || \
+      warn "llvm-link failed"
+  fi
+
+  info "Collected ${bc_count} bitcode files in ${output_dir}"
+}
+
+# ============================================================
+# list — show available kernels and bitcode
+# ============================================================
+cmd_list() {
+  echo -e "${BOLD}Kernel sources:${NC}"
+  if [[ -d "${SOURCES_DIR}" ]]; then
+    for d in "${SOURCES_DIR}"/linux-*/; do
+      [[ -d "${d}" ]] || continue
+      local name
+      name="$(basename "${d}")"
+      local kver
+      kver="$(make -C "${d}" -s kernelversion 2>/dev/null)" || kver="?"
+      echo "  ${name} (${kver})"
+    done
+  else
+    echo "  (none)"
+  fi
+
+  echo ""
+  echo -e "${BOLD}Bitcode output:${NC}"
+  if [[ -d "${BUILD_DIR}" ]]; then
+    for d in "${BUILD_DIR}"/*/; do
+      [[ -d "${d}" ]] || continue
+      local name
+      name="$(basename "${d}")"
+      local count
+      count="$(find "${d}" -name '*.bc' | wc -l)"
+      local vmlinux=""
+      [[ -f "${d}/vmlinux.bc" ]] && vmlinux=" (vmlinux.bc)"
+      echo "  ${name}: ${count} .bc files${vmlinux}"
+    done
+  else
+    echo "  (none)"
+  fi
+}
+
+# ============================================================
+# clean — remove build artifacts
+# ============================================================
+cmd_clean() {
+  local target="${1:-build}"
+
+  case "${target}" in
+    build)
+      [[ -d "${BUILD_DIR}" ]] && rm -rf "${BUILD_DIR}" && info "Removed ${BUILD_DIR}" || info "Nothing to clean."
+      ;;
+    sources)
+      [[ -d "${SOURCES_DIR}" ]] && rm -rf "${SOURCES_DIR}" && info "Removed ${SOURCES_DIR}" || info "Nothing to clean."
+      ;;
+    all) cmd_clean build; cmd_clean sources ;;
+    *)   die "Unknown target: ${target}. Use: build, sources, all" ;;
+  esac
+}
+
+# ============================================================
+# help
+# ============================================================
+cmd_help() {
+  cat <<EOF
+${BOLD}llbic${NC} — Compile Linux kernels to LLVM bitcode
+
+${BOLD}Usage:${NC}
+  llbic <version> [--clang VER] [--output DIR] [--json]
+                                       One-shot: download, extract, compile
+  llbic <command> [options]           Individual steps
+
+${BOLD}Examples:${NC}
+  llbic 6.12                          # compile kernel 6.12 to bitcode
+  llbic 6.12 --clang 18               # use clang-18
+  llbic 6.12 -c 18 -o /tmp/out        # output to a custom directory
+  llbic 6.12 --json                   # emit machine-readable build metadata
+
+${BOLD}Commands:${NC}
+  build <VER>           Download + extract + compile (same as llbic <VER>)
+  compile [KERNEL]      Compile already-extracted kernel(s)
+  download [VER|URL]    Download sources directly or from sources.conf
+  extract               Decompress archives
+  list                  Show available kernels and bitcode
+  clean [TARGET]        Remove artifacts (build|sources|all)
+
+${BOLD}Docker:${NC}
+  docker run --rm -v \$(pwd)/out:/out ghcr.io/cyruscyliu/llbic:latest 6.12
+  # writes to ./out/linux-6.12/ automatically when /out is mounted
+
+EOF
+}
+
+# ============================================================
+# Main dispatch
+# ============================================================
+main() {
+  if [[ "${1:-}" == "--json" ]]; then
+    JSON_OUTPUT=1
+    shift
+  fi
+
+  local cmd="${1:-help}"
+  shift || true
+
+  case "${cmd}" in
+    build)     cmd_build "$@" ;;
+    compile)   cmd_compile "$@" ;;
+    download)  cmd_download "$@" ;;
+    extract)   cmd_extract "$@" ;;
+    list)      cmd_list "$@" ;;
+    clean)     cmd_clean "$@" ;;
+    version|--version|-v) echo "llbic ${VERSION}" ;;
+    help|--help|-h)       cmd_help ;;
+    # If it looks like a version number, treat as "build <version>"
+    [0-9]*)    cmd_build "${cmd}" "$@" ;;
+    *)         error "Unknown command: ${cmd}"; echo ""; cmd_help; exit 1 ;;
+  esac
+}
+
+main "$@"
