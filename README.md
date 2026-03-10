@@ -6,7 +6,7 @@ Compile Linux kernels to source code, LLVM bitcode, and kernel images with one s
 [![Container Registry](https://img.shields.io/badge/ghcr.io-llbic-blue)](https://github.com/cyruscyliu/llbic/pkgs/container/llbic)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-`llbic` is a one-shot interface for turning a Linux kernel version into a reproducible build workspace.
+`llbic` is a one-shot interface for turning a Linux kernel version into a build workspace.
 It is designed for researchers, tool builders, and agent workflows that need stable kernel artifacts instead of ad hoc scripts.
 
 ## Quick start
@@ -89,12 +89,13 @@ docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:mid 5.15 --clang 1
 docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:legacy 3.18 --clang 8
 ```
 
-## Why llbic
+## Build images
 
-- One command instead of download, extract, patch, compile, and collect steps
-- Stable Docker-based environment for reproducible experiments
-- Human-friendly CLI and machine-friendly JSON mode
-- Per-version output layout that works well for batch runs and automation
+```bash
+docker compose build llbic
+docker compose build llbic-mid
+docker compose build llbic-legacy
+```
 
 ## Local usage
 
@@ -108,36 +109,13 @@ docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:legacy 3.18 --clan
 Each one-shot run writes a timestamped end-to-end log to
 `out/linux-<version>/llbic.log`.
 
-## CLI
-
-```text
-llbic <version> [--clang VER] [--output DIR] [--json]
-llbic <command> [options]
-```
-
-Commands:
-
-- `build <VERSION>`: download, extract, compile
-- `compile [KERNEL]`: compile extracted sources
-- `download [VERSION|URL]`: fetch sources directly
-- `extract`: unpack archives
-- `list`: show sources and outputs
-- `clean [TARGET]`: remove `build`, `sources`, or both
-- `version`: print version
-
 ## Community
 
 - Contributions are welcome through issues and pull requests.
 - For repo conventions and contribution flow, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+- For security reporting guidance, see [SECURITY.md](./SECURITY.md).
+- Community participation is covered by [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
 - Legacy patch-oriented workflows remain available in `llbic.py` for older kernel work.
-
-## Build images
-
-```bash
-docker compose build llbic
-docker compose build llbic-mid
-docker compose build llbic-legacy
-```
 
 ## License
 
