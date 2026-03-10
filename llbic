@@ -255,25 +255,41 @@ _collect_bitcode_files() {
 
 _collect_kernel_images() {
   local kernel_src="$1"
+  local build_dir="${2:-}"
   LAST_KERNEL_IMAGES=()
   [[ -d "${kernel_src}" ]] || return 0
 
-  local -a candidates=(
-    "${kernel_src}/vmlinux"
-    "${kernel_src}/arch/x86/boot/bzImage"
-    "${kernel_src}/arch/x86/boot/compressed/vmlinux"
-    "${kernel_src}/arch/arm/boot/zImage"
-    "${kernel_src}/arch/arm/boot/Image"
-    "${kernel_src}/arch/arm64/boot/Image"
-    "${kernel_src}/arch/arm64/boot/Image.gz"
-    "${kernel_src}/arch/mips/boot/vmlinux.bin"
-    "${kernel_src}/arch/mips/boot/compressed/vmlinuz"
-    "${kernel_src}/arch/riscv/boot/Image"
-  )
+  # Prefer the actual build output dir (for out-of-tree builds), but also check
+  # the source tree for in-tree builds or unusual layouts.
+  local -a roots=()
+  if [[ -n "${build_dir}" && -d "${build_dir}" ]]; then
+    roots+=("${build_dir}")
+  fi
+  roots+=("${kernel_src}")
 
-  local image
-  for image in "${candidates[@]}"; do
-    [[ -f "${image}" ]] && LAST_KERNEL_IMAGES+=("${image}")
+  local -A seen=()
+
+  local root image
+  for root in "${roots[@]}"; do
+    local -a candidates=(
+      "${root}/vmlinux"
+      "${root}/arch/x86/boot/bzImage"
+      "${root}/arch/x86/boot/compressed/vmlinux"
+      "${root}/arch/arm/boot/zImage"
+      "${root}/arch/arm/boot/Image"
+      "${root}/arch/arm64/boot/Image"
+      "${root}/arch/arm64/boot/Image.gz"
+      "${root}/arch/mips/boot/vmlinux.bin"
+      "${root}/arch/mips/boot/compressed/vmlinuz"
+      "${root}/arch/riscv/boot/Image"
+    )
+
+    for image in "${candidates[@]}"; do
+      if [[ -f "${image}" ]] && [[ -z "${seen["${image}"]:-}" ]]; then
+        seen["${image}"]=1
+        LAST_KERNEL_IMAGES+=("${image}")
+      fi
+    done
   done
 }
 
@@ -308,6 +324,13 @@ _emit_build_json() {
   printf '\n'
 }
 
+_write_build_json_file() {
+  local json_file="$1"
+  shift
+  mkdir -p -- "$(dirname "${json_file}")"
+  _emit_build_json "$@" > "${json_file}"
+}
+
 _download_file() {
   local url="$1" dest="$2"
   if command -v curl >/dev/null 2>&1; then
@@ -326,6 +349,7 @@ cmd_build() {
   local kernel_ver=""
   local clang_version=""
   local output_dir=""
+  local build_layout="intree"
   local saw_kernel_ver=0
 
   while [[ $# -gt 0 ]]; do
@@ -339,6 +363,8 @@ cmd_build() {
         [[ $# -ge 2 ]] || die "--output requires a value (example: --output ./out)"
         output_dir="$2"; shift 2
         ;;
+      --outtree|--out-of-tree) build_layout="outtree"; shift ;;
+      --intree) build_layout="intree"; shift ;;
       --help|-h)   echo "Usage: llbic <VERSION> [--clang VER] [--output DIR] [--json]"; exit 0 ;;
       --)
         shift
@@ -417,6 +443,16 @@ cmd_build() {
   [[ -z "${clang_version}" ]] && clang_version="${llvm_major}"
   _log_step "compile.prepare clang=${clang} llvm_major=${llvm_major}"
 
+  local kbuild_dir=""
+  if [[ "${build_layout}" == "outtree" ]]; then
+    # Keep per-clang build dirs to avoid conflicts when switching toolchains.
+    kbuild_dir="${bc_output}/kbuild-clang${clang_version}"
+    mkdir -p -- "${kbuild_dir}"
+    _log_step "compile.layout outtree=1 kbuild_dir=${kbuild_dir}"
+  else
+    _log_step "compile.layout outtree=0"
+  fi
+
   local kver
   kver="$(make -C "${kernel_src}" -s kernelversion 2>/dev/null)" || kver="${kernel_ver}"
 
@@ -425,17 +461,17 @@ cmd_build() {
 
   if _version_ge "${kver}" "5.12"; then
     _log_step "compile.start strategy=lto kernel_version=${kver}"
-    _compile_lto "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${llvm_major}"
+    _compile_lto "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${llvm_major}" "${kbuild_dir}"
   else
     _log_step "compile.start strategy=irdumper kernel_version=${kver}"
-    _compile_irdumper "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${clang_version}" "${llvm_major}"
+    _compile_irdumper "${kernel_src}" "${kernel_name}" "${bc_output}" "${clang}" "${clang_version}" "${llvm_major}" "${kbuild_dir}"
   fi
 
   echo "" >&2
   info "Done. Output: ${bc_output}/"
   [[ -f "${bc_output}/vmlinux.bc" ]] && info "vmlinux.bc: ${bc_output}/vmlinux.bc"
   _collect_bitcode_files "${bc_output}"
-  _collect_kernel_images "${kernel_src}"
+  _collect_kernel_images "${kernel_src}" "${kbuild_dir}"
   _log_step "compile.done bitcode_count=${#LAST_BITCODE_FILES[@]}"
   if [[ ${#LAST_KERNEL_IMAGES[@]} -gt 0 ]]; then
     info "kernel images: ${#LAST_KERNEL_IMAGES[@]}"
@@ -443,8 +479,15 @@ cmd_build() {
   fi
   [[ -n "${LAST_VMLINUX_BC}" ]] && _log_step "bitcode.primary path=${LAST_VMLINUX_BC}"
   _log_step "build.done log_file=${LOG_FILE}"
+
+  # Always write a machine-readable summary file next to the build artifacts.
+  local json_file="${bc_output}/llbic.json"
+  _write_build_json_file "${json_file}" "${kernel_ver}" "${kernel_name}" "${clang}" "${llvm_major}"
+  _log_step "json.write path=${json_file}"
+
+  # Optional: also emit JSON to stdout for agent workflows.
   if [[ "${JSON_OUTPUT}" -eq 1 ]]; then
-    _emit_build_json "${kernel_ver}" "${kernel_name}" "${clang}" "${llvm_major}"
+    cat "${json_file}"
   fi
 }
 
@@ -578,11 +621,11 @@ cmd_compile() {
 
     printf '%s=== %s (%s) ===%s\n' "${BOLD}" "${kernel_name}" "${kver}" "${NC}" >&2
 
-    if _version_ge "${kver}" "5.12"; then
-      _compile_lto "${kernel_src}" "${kernel_name}" "${output_dir}" "${clang}" "${llvm_major}"
-    else
-      _compile_irdumper "${kernel_src}" "${kernel_name}" "${output_dir}" "${clang}" "${clang_version}" "${llvm_major}"
-    fi
+	    if _version_ge "${kver}" "5.12"; then
+	      _compile_lto "${kernel_src}" "${kernel_name}" "${output_dir}" "${clang}" "${llvm_major}" ""
+	    else
+	      _compile_irdumper "${kernel_src}" "${kernel_name}" "${output_dir}" "${clang}" "${clang_version}" "${llvm_major}" ""
+	    fi
     echo "" >&2
   done
 
@@ -593,39 +636,51 @@ cmd_compile() {
 # Compile strategies
 # ============================================================
 _compile_lto() {
-  local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" llvm_major="$5"
+  local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" llvm_major="$5" kbuild_dir="${6:-}"
+  local -a make_extra=()
+  if [[ -n "${kbuild_dir}" ]]; then
+    make_extra+=(O="${kbuild_dir}")
+  else
+    info "In-tree build: cleaning (make clean)..."
+    make -C "${kernel_src}" clean > /dev/null 2>&1 || warn "make clean failed; continuing"
+  fi
 
   info "Strategy: CONFIG_LTO_CLANG_FULL (native LTO)"
 
   info "Generating defconfig + LTO..."
-  make -C "${kernel_src}" CC="${clang}" LLVM=1 defconfig -j"${NPROC}" > /dev/null 2>&1
+  make -C "${kernel_src}" "${make_extra[@]}" CC="${clang}" LLVM=1 defconfig -j"${NPROC}" > /dev/null 2>&1
 
-  "${kernel_src}/scripts/config" --file "${kernel_src}/.config" \
+  local config_path="${kernel_src}/.config"
+  [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
+  "${kernel_src}/scripts/config" --file "${config_path}" \
     --enable LTO_CLANG \
     --enable LTO_CLANG_FULL \
     --disable LTO_CLANG_THIN \
     --disable LTO_NONE \
     --disable MODVERSIONS
 
-  make -C "${kernel_src}" CC="${clang}" LLVM=1 olddefconfig -j"${NPROC}" > /dev/null 2>&1
+  make -C "${kernel_src}" "${make_extra[@]}" CC="${clang}" LLVM=1 olddefconfig -j"${NPROC}" > /dev/null 2>&1
 
   info "Compiling with ${clang} + full LTO..."
   make -C "${kernel_src}" \
+    "${make_extra[@]}" \
     CC="${clang}" \
     LLVM=1 \
     -j"${NPROC}" \
     2>&1 | tee "${SOURCES_DIR}/${kernel_name}-build.log"
 
   info "Collecting bitcode..."
-  mkdir -p "${output_dir}"
+  mkdir -p -- "${output_dir}"
 
   local bc_count=0
+  local search_root="${kernel_src}"
+  [[ -n "${kbuild_dir}" ]] && search_root="${kbuild_dir}"
   while IFS= read -r -d '' obj; do
     if file "${obj}" | grep -q "LLVM IR bitcode"; then
       cp "${obj}" "${output_dir}/$(basename "${obj}" .o).bc"
       ((bc_count++))
     fi
-  done < <(find "${kernel_src}" -name '*.o' -print0)
+  done < <(find "${search_root}" -name '*.o' -print0)
 
   if [[ ${bc_count} -gt 0 ]]; then
     info "Linking ${bc_count} .bc files into vmlinux.bc..."
@@ -638,7 +693,14 @@ _compile_lto() {
 }
 
 _compile_irdumper() {
-  local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" clang_version="$5" llvm_major="$6"
+  local kernel_src="$1" kernel_name="$2" output_dir="$3" clang="$4" clang_version="$5" llvm_major="$6" kbuild_dir="${7:-}"
+  local -a make_extra=()
+  if [[ -n "${kbuild_dir}" ]]; then
+    make_extra+=(O="${kbuild_dir}")
+  else
+    info "In-tree build: cleaning (make clean)..."
+    make -C "${kernel_src}" clean > /dev/null 2>&1 || warn "make clean failed; continuing"
+  fi
 
   info "Strategy: IRDumper pass plugin (fallback)"
 
@@ -662,7 +724,7 @@ _compile_irdumper() {
   local marker="# --- IRDumper flags (auto-injected) ---"
 
   info "Generating defconfig..."
-  make -C "${kernel_src}" CC="${clang}" LLVM=1 defconfig -j"${NPROC}" > /dev/null 2>&1
+  make -C "${kernel_src}" "${make_extra[@]}" CC="${clang}" LLVM=1 defconfig -j"${NPROC}" > /dev/null 2>&1
 
   if ! grep -qF "${marker}" "${kernel_makefile}"; then
     cat >> "${kernel_makefile}" <<EOF
@@ -675,6 +737,7 @@ EOF
 
   info "Compiling with ${clang} + IRDumper..."
   make -C "${kernel_src}" \
+    "${make_extra[@]}" \
     CC="${clang}" \
     LLVM=1 \
     -j"${NPROC}" \
@@ -689,8 +752,10 @@ EOF
   fi
 
   info "Collecting .bc files..."
-  mkdir -p "${output_dir}"
-  find "${kernel_src}" -name '*.bc' -exec cp {} "${output_dir}/" \;
+  mkdir -p -- "${output_dir}"
+  local search_root="${kernel_src}"
+  [[ -n "${kbuild_dir}" ]] && search_root="${kbuild_dir}"
+  find "${search_root}" -name '*.bc' -exec cp {} "${output_dir}/" \;
 
   local bc_count
   bc_count="$(find "${output_dir}" -name '*.bc' | wc -l)"
@@ -767,15 +832,20 @@ cmd_help() {
 ${BOLD}llbic${NC} — Compile Linux kernels to LLVM bitcode
 
 ${BOLD}Usage:${NC}
-  llbic <version> [--clang VER] [--output DIR] [--json]
-  llbic --json <version> [--clang VER] [--output DIR]
+  llbic <version> [--clang VER] [--output DIR] [--json] [--outtree|--intree]
+  llbic --json <version> [--clang VER] [--output DIR] [--outtree|--intree]
                                        One-shot: download, extract, compile
 
 ${BOLD}Examples:${NC}
   llbic 6.12                          # compile kernel 6.12 to bitcode
   llbic 6.12 --clang 18               # use clang-18
   llbic 6.12 -c 18 -o /tmp/out        # output to a custom directory
-  llbic 6.12 --json                   # emit machine-readable build metadata
+  llbic 6.12 --json                   # print JSON summary to stdout (also writes llbic.json)
+  llbic 6.12 --outtree                # out-of-tree build (avoids toolchain conflicts)
+
+${BOLD}Build layout:${NC}
+  --outtree, --out-of-tree            Build with O=<out dir> (recommended)
+  --intree                            Build in the source tree (default; runs make clean)
 
 ${BOLD}Docker:${NC}
   docker run --rm -v \$(pwd)/out:/out ghcr.io/cyruscyliu/llbic:latest 6.12
