@@ -1,13 +1,15 @@
 # llbic
 
-Compile Linux kernels to source code, LLVM bitcode, and kernel images with one stable command.
+Compile Linux kernels to source code, LLVM bitcode, and kernel images with one
+stable command.
 
 [![Docker Publish](https://github.com/cyruscyliu/llbic/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/cyruscyliu/llbic/actions/workflows/docker-publish.yml)
 [![Container Registry](https://img.shields.io/badge/ghcr.io-llbic-blue)](https://github.com/cyruscyliu/llbic/pkgs/container/llbic)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-`llbic` is a one-shot interface for turning a Linux kernel version into a build workspace.
-It is designed for researchers, tool builders, and agent workflows that need stable kernel artifacts instead of ad hoc scripts.
+`llbic` is a one-shot interface for turning a Linux kernel version into a build
+workspace.  It is designed for researchers, tool builders, and agent workflows
+that need stable kernel artifacts instead of ad hoc scripts.
 
 ## Quick start
 
@@ -91,20 +93,29 @@ docker run --rm -v "$(pwd)/out:/out" ghcr.io/cyruscyliu/llbic:legacy 3.18 --clan
 
 ## Local usage
 
-```bash
-## build images
-docker compose build llbic
-docker compose build llbic-mid
-docker compose build llbic-legacy
+`./llbic` runs inside Docker and will build the local image if it is missing.
+Use `LLBIC_REBUILD=1` to force rebuilding the image.
 
+```bash
 ./llbic 6.12
+./llbic 6.12 --out-of-tree
 ./llbic 6.12 --clang 18
 ./llbic 6.12 --output ./out
 ./llbic --json 6.12
 ```
 
-Each one-shot run writes a timestamped end-to-end log to
-`out/linux-<version>/llbic.log`.
+`--out-of-tree` builds with `make O=<dir>` so the build output lives outside the
+extracted source tree. This avoids conflicts when rebuilding the same kernel
+with a different `--clang` version.
+
+Artifacts are written under `sources/out/linux-<version>/` by default (override
+with `--output`):
+
+- `llbic.log`: end-to-end build log
+- `llbic.json`: machine-readable build summary
+- `bitcode_files.txt`: list of generated `.bc` files (relative paths)
+
+`--json` also prints the JSON summary to stdout.
 
 ## Community
 

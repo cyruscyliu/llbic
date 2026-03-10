@@ -199,11 +199,9 @@ _normalize_kernel_name() {
 }
 
 _default_output_dir() {
-  if [[ -d "/out" ]]; then
-    echo "/out"
-  else
-    echo "${BUILD_DIR}"
-  fi
+  # Default outputs under the sources workspace so they are always persisted
+  # (even when /out is not mounted) and grouped next to extracted kernels.
+  echo "${SOURCES_DIR}/out"
 }
 
 _timestamp() {
