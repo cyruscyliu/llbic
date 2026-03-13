@@ -32,7 +32,7 @@ if [[ -z "${LLBIC_NO_DOCKER:-}" ]] && command -v docker >/dev/null 2>&1; then
       while [[ ${idx} -lt ${#args[@]} ]]; do
         arg="${args[${idx}]}"
     case "${arg}" in
-      --json) ((idx+=1)) ;;
+      --json|--verbose|-V) ((idx+=1)) ;;
       --clang|-c|--output|-o|--arch|-a|--cross|--defconfig|--kconfig|-K) ((idx+=2)) ;; # skip flag + value
       --) ((idx+=1)); break ;;
       -*) ((idx+=1)) ;;
@@ -97,6 +97,7 @@ BUILD_DIR="${LLBIC_OUTPUT:-${ROOT_DIR}/build}"
 CONF_FILE="${LLBIC_CONF:-${ROOT_DIR}/sources.conf}"
 NPROC="${NPROC:-$(nproc)}"
 JSON_OUTPUT=0
+VERBOSE=0
 LAST_SOURCE_URL=""
 LAST_SOURCE_DIR=""
 LAST_OUTPUT_DIR=""
@@ -175,6 +176,12 @@ _default_cross_for_arch() {
     x86_64) echo "" ;;
     *) echo "" ;;
   esac
+}
+
+_make_verbose_args() {
+  if [[ "${VERBOSE}" -eq 1 ]]; then
+    echo "V=1"
+  fi
 }
 
 _normalize_path_for_json() {
@@ -705,6 +712,7 @@ cmd_build() {
         clang_version="$2"; shift 2
         ;;
       --json)      JSON_OUTPUT=1; shift ;;
+      --verbose|-V) VERBOSE=1; shift ;;
       --output|-o)
         [[ $# -ge 2 ]] || die "--output requires a value (example: --output ./out)"
         output_dir="$2"; shift 2
@@ -731,7 +739,7 @@ cmd_build() {
       --outtree|--out-of-tree) layout_set=1; build_layout="outtree"; shift ;;
       --intree) layout_set=1; build_layout="intree"; shift ;;
       --help|-h)
-        echo "Usage: llbic <VERSION> [--clang VER] [--arch ARCH] [--cross PREFIX] [--defconfig TARGET] [--kconfig FILE ...] [--output DIR] [--json] [--outtree|--intree]"
+        echo "Usage: llbic <VERSION> [--clang VER] [--arch ARCH] [--cross PREFIX] [--defconfig TARGET] [--kconfig FILE ...] [--output DIR] [--json] [--verbose] [--outtree|--intree]"
         exit 0
         ;;
       --)
@@ -1082,18 +1090,20 @@ _compile_lto() {
   shift 9
   local -a kconfig_fragments=("$@")
   local -a make_extra=()
+  local -a make_verbose=()
   if [[ -n "${kbuild_dir}" ]]; then
     make_extra+=(O="${kbuild_dir}")
   else
     info "In-tree build: cleaning (make clean)..."
     make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean > /dev/null 2>&1 || warn "make clean failed; continuing"
   fi
+  mapfile -t make_verbose < <(_make_verbose_args)
 
   info "Strategy: CONFIG_LTO_CLANG_FULL (native LTO)"
 
   info "Generating defconfig + LTO..."
   make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
-    CC="${clang}" LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
+    "${make_verbose[@]}" CC="${clang}" LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
 
   local config_path="${kernel_src}/.config"
   [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
@@ -1110,7 +1120,7 @@ _compile_lto() {
     --disable MODVERSIONS
 
   make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
-    CC="${clang}" LLVM=1 LLVM_IAS=1 olddefconfig -j"${NPROC}" > /dev/null 2>&1
+    "${make_verbose[@]}" CC="${clang}" LLVM=1 LLVM_IAS=1 olddefconfig -j"${NPROC}" > /dev/null 2>&1
 
   LLBIC_CTX_CONFIG_SHA256="$(_sha256_file "${config_path}")"
   _log_step "kconfig.final path=${config_path} sha256=${LLBIC_CTX_CONFIG_SHA256:-}"
@@ -1120,6 +1130,7 @@ _compile_lto() {
     "${make_extra[@]}" \
     ARCH="${arch}" \
     ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    "${make_verbose[@]}" \
     CC="${clang}" \
     LLVM=1 \
     LLVM_IAS=1 \
@@ -1142,12 +1153,14 @@ _compile_irdumper() {
   shift 10
   local -a kconfig_fragments=("$@")
   local -a make_extra=()
+  local -a make_verbose=()
   if [[ -n "${kbuild_dir}" ]]; then
     make_extra+=(O="${kbuild_dir}")
   else
     info "In-tree build: cleaning (make clean)..."
     make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean > /dev/null 2>&1 || warn "make clean failed; continuing"
   fi
+  mapfile -t make_verbose < <(_make_verbose_args)
 
   info "Strategy: IRDumper pass plugin (fallback)"
 
@@ -1172,7 +1185,7 @@ _compile_irdumper() {
 
   info "Generating defconfig..."
   make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
-    CC="${clang}" LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
+    "${make_verbose[@]}" CC="${clang}" LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
 
   local config_path="${kernel_src}/.config"
   [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
@@ -1193,6 +1206,7 @@ EOF
     "${make_extra[@]}" \
     ARCH="${arch}" \
     ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    "${make_verbose[@]}" \
     CC="${clang}" \
     LLVM=1 \
     LLVM_IAS=1 \
@@ -1283,8 +1297,8 @@ cmd_help() {
 ${BOLD}llbic${NC} — Compile Linux kernels to LLVM bitcode
 
 ${BOLD}Usage:${NC}
-  llbic <version> [--clang VER] [--arch ARCH] [--cross PREFIX] [--defconfig TARGET] [--output DIR] [--json] [--outtree|--intree]
-  llbic --json <version> [--clang VER] [--arch ARCH] [--cross PREFIX] [--defconfig TARGET] [--output DIR] [--outtree|--intree]
+  llbic <version> [--clang VER] [--arch ARCH] [--cross PREFIX] [--defconfig TARGET] [--output DIR] [--json] [--verbose] [--outtree|--intree]
+  llbic --json <version> [--clang VER] [--arch ARCH] [--cross PREFIX] [--defconfig TARGET] [--output DIR] [--verbose] [--outtree|--intree]
                                        One-shot: download, extract, compile
 
 ${BOLD}Examples:${NC}
@@ -1296,6 +1310,7 @@ ${BOLD}Examples:${NC}
   llbic 6.12 -K ./my.fragment -K ./more.fragment       # merge Kconfig fragments
   llbic 6.12 -c 18 -o /tmp/out        # output to a custom directory
   llbic 6.12 --json                   # print JSON summary to stdout (also writes llbic.json)
+  llbic 6.12 --verbose                # pass V=1 to kernel make for full command logs
   llbic 6.12 --outtree                # out-of-tree build (avoids toolchain conflicts)
 
 ${BOLD}Build layout:${NC}
