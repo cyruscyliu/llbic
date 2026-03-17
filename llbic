@@ -352,9 +352,32 @@ _resolve_clang() {
   fi
 }
 
+_default_clang_for_kernel() {
+  local kernel_ver="${1:-}"
+  local major=""
+  local minor=""
+
+  [[ "${kernel_ver}" =~ ^([0-9]+)\.([0-9]+) ]] || return 0
+  major="${BASH_REMATCH[1]}"
+  minor="${BASH_REMATCH[2]}"
+
+  if (( major >= 6 )); then
+    printf '%s' "18"
+  elif (( major >= 4 )); then
+    printf '%s' "12"
+  elif (( major == 3 )); then
+    printf '%s' "7"
+  elif (( major == 2 && minor == 6 )); then
+    printf '%s' "7"
+  fi
+}
+
 _apply_kernel_compat_fixes() {
   local kernel_src="$1"
   local dtc_lexer="${kernel_src}/scripts/dtc/dtc-lexer.l"
+  local gcc5_header="${kernel_src}/include/linux/compiler-gcc5.h"
+  local gcc_header=""
+  local gcc_major=""
 
   # Older kernels ship a lexer that defines yylloc directly. Modern bison
   # also emits a definition, which breaks host-tool linking for dtc.
@@ -362,6 +385,19 @@ _apply_kernel_compat_fixes() {
     info "Applying compat fix: scripts/dtc yylloc declaration"
     perl -0pi -e 's/^YYLTYPE yylloc;$/extern YYLTYPE yylloc;/m' "${dtc_lexer}"
     _log_step "compat.fix path=${dtc_lexer} kind=dtc_yylloc_extern"
+  fi
+
+  # Very old kernels may only ship compiler-gcc5.h, but the cross GCC in the
+  # legacy container reports newer major versions such as 7 or 8.
+  if [[ -f "${gcc5_header}" ]]; then
+    for gcc_major in 6 7 8 9 10 11 12; do
+      gcc_header="${kernel_src}/include/linux/compiler-gcc${gcc_major}.h"
+      if [[ ! -e "${gcc_header}" ]]; then
+        info "Applying compat fix: compiler-gcc${gcc_major}.h -> compiler-gcc5.h"
+        cp "${gcc5_header}" "${gcc_header}"
+        _log_step "compat.fix path=${gcc_header} kind=compiler_gcc_alias source=${gcc5_header}"
+      fi
+    done
   fi
 }
 
@@ -407,6 +443,96 @@ _kernel_compile_compat_flags() {
   if [[ "${arch}" == "arm64" ]] && (( major < 5 || (major == 5 && minor <= 4) )); then
     printf '%s' "-fno-stack-protector -fno-builtin-bcmp -fno-builtin-stpcpy"
   fi
+}
+
+_write_irdumper_cc_wrapper() {
+  local wrapper_path="$1"
+  local real_clang="$2"
+  local irdumper_so="$3"
+  local special_cc="${4:-}"
+  local clang_extra_flags="${5:-}"
+
+  cat > "${wrapper_path}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+real_clang='${real_clang}'
+irdumper_so='${irdumper_so}'
+special_cc='${special_cc}'
+clang_extra_flags='${clang_extra_flags}'
+
+clang_extra=()
+if [[ -n "\${clang_extra_flags}" ]]; then
+  read -r -a clang_extra <<< "\${clang_extra_flags}"
+fi
+
+skip_plugin=0
+use_special_cc=0
+for arg in "\$@"; do
+  case "\$arg" in
+    *scripts/mod/empty.c|*scripts/mod/devicetable-offsets.c|*kernel/bounds.c|*kernel/asm-offsets.c|*scripts/mod/empty.o|*scripts/mod/devicetable-offsets.s|*kernel/bounds.s|*kernel/asm-offsets.s)
+      skip_plugin=1
+      use_special_cc=1
+      break
+      ;;
+    *missing_syscalls*|*.missing-syscalls.*)
+      skip_plugin=1
+      break
+      ;;
+  esac
+done
+
+selected_cc="\${real_clang}"
+if [[ "\${use_special_cc}" -eq 1 && -n "\${special_cc}" ]]; then
+  selected_cc="\${special_cc}"
+fi
+
+if [[ "\${skip_plugin}" -eq 0 ]]; then
+  exec "\${real_clang}" "\${clang_extra[@]}" "\$@"
+fi
+
+filtered=()
+while [[ \$# -gt 0 ]]; do
+  case "\$1" in
+    -fpass-plugin="\${irdumper_so}")
+      shift
+      ;;
+    --target=*|--prefix=*|--gcc-toolchain=*|-no-integrated-as|-Qunused-arguments|-mno-global-merge|-fno-discard-value-names)
+      if [[ "\${selected_cc}" == "\${special_cc}" ]]; then
+        shift
+      else
+        filtered+=("\$1")
+        shift
+      fi
+      ;;
+    -Xclang)
+      if [[ \$# -ge 2 && "\$2" == "-load" ]]; then
+        shift 2
+        if [[ \$# -ge 2 && "\$1" == "-Xclang" && "\$2" == "\${irdumper_so}" ]]; then
+          shift 2
+        fi
+      elif [[ \$# -ge 2 && "\$2" == "-no-opaque-pointers" ]]; then
+        shift 2
+      else
+        filtered+=("\$1")
+        shift
+      fi
+      ;;
+    *)
+      filtered+=("\$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ "\${selected_cc}" == "\${real_clang}" ]]; then
+  exec "\${selected_cc}" "\${clang_extra[@]}" "\${filtered[@]}"
+fi
+
+exec "\${selected_cc}" "\${filtered[@]}"
+EOF
+
+  chmod +x "${wrapper_path}"
 }
 
 _kernel_url() {
@@ -988,6 +1114,7 @@ cmd_build() {
 
   # Step 2: Compile
   LLBIC_CTX_PHASE="compile"
+  [[ -n "${clang_version}" ]] || clang_version="$(_default_clang_for_kernel "${kernel_ver}")"
   local clang
   clang="$(_resolve_clang "${clang_version}")"
   command -v "${clang}" >/dev/null 2>&1 || die "${clang} not found"
@@ -1137,6 +1264,7 @@ cmd_compile() {
   done
 
   [[ -z "${target_kernel}" ]] || target_kernel="$(_normalize_kernel_name "${target_kernel}")"
+  [[ -n "${clang_version}" ]] || clang_version="$(_default_clang_for_kernel "${target_kernel#linux-}")"
 
   local clang
   clang="$(_resolve_clang "${clang_version}")"
@@ -1247,6 +1375,18 @@ KBUILD_CFLAGS += ${compat_cflags}
 EOF
   fi
 
+  info "Preparing host tools and generated headers without IRDumper..."
+  make -C "${kernel_src}" \
+    "${make_extra[@]}" \
+    ARCH="${arch}" \
+    ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    "${make_verbose[@]}" \
+    CC="${clang}" \
+    ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} \
+    LLVM=1 \
+    LLVM_IAS=1 \
+    prepare scripts -j"${NPROC}" > /dev/null 2>&1
+
   if ! grep -qF "${marker}" "${kernel_makefile}"; then
     cat >> "${kernel_makefile}" <<EOF
 
@@ -1291,6 +1431,9 @@ _compile_irdumper() {
   local -a make_verbose=()
   local clang_flags_override=""
   local compat_cflags=""
+  local cc_wrapper=""
+  local special_cc=""
+  mkdir -p "${output_dir}"
   if [[ -n "${kbuild_dir}" ]]; then
     make_extra+=(O="${kbuild_dir}")
   else
@@ -1307,18 +1450,24 @@ _compile_irdumper() {
   local irdumper_so="/opt/IRDumper/${clang_version}/libDumper.so"
   [[ -f "${irdumper_so}" ]] || die "IRDumper not found: ${irdumper_so}"
 
+  local irdumper_analysis_flags="-Wno-error -Wno-error=return-type -O1 -fno-discard-value-names -g -fno-inline-functions -fno-inline"
   local dumper_flags
   if [[ "${llvm_major}" -ge 17 ]]; then
-    dumper_flags="-Wno-error -g -fpass-plugin=${irdumper_so}"
+    dumper_flags="${irdumper_analysis_flags} -fpass-plugin=${irdumper_so}"
   elif [[ "${llvm_major}" -ge 15 ]]; then
-    dumper_flags="-Wno-error -g -Xclang -no-opaque-pointers -fpass-plugin=${irdumper_so}"
+    dumper_flags="${irdumper_analysis_flags} -Xclang -no-opaque-pointers -fpass-plugin=${irdumper_so}"
   elif [[ "${llvm_major}" -ge 14 ]]; then
-    dumper_flags="-Wno-error -g -fpass-plugin=${irdumper_so}"
+    dumper_flags="${irdumper_analysis_flags} -fpass-plugin=${irdumper_so}"
   else
-    dumper_flags="-Wno-error -g -Xclang -flegacy-pass-manager -Xclang -load -Xclang ${irdumper_so}"
+    dumper_flags="${irdumper_analysis_flags} -Xclang -load -Xclang ${irdumper_so}"
   fi
 
   info "IRDumper: ${irdumper_so}"
+  if [[ -n "${cross_compile}" ]] && command -v "${cross_compile}gcc" >/dev/null 2>&1; then
+    special_cc="$(command -v "${cross_compile}gcc")"
+  fi
+  cc_wrapper="${output_dir}/irdumper-cc-wrapper.sh"
+  _write_irdumper_cc_wrapper "${cc_wrapper}" "$(command -v "${clang}")" "${irdumper_so}" "${special_cc}" "${clang_flags_override}"
 
   local kernel_makefile="${kernel_src}/Makefile"
   local compat_marker="# --- kernel compat flags (auto-injected) ---"
@@ -1344,6 +1493,17 @@ KBUILD_CFLAGS += ${compat_cflags}
 EOF
   fi
 
+  info "Preparing host tools and generated headers without IRDumper..."
+  make -C "${kernel_src}" \
+    "${make_extra[@]}" \
+    ARCH="${arch}" \
+    ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    "${make_verbose[@]}" \
+    CC="${cc_wrapper}" \
+    LLVM=1 \
+    LLVM_IAS=1 \
+    prepare scripts -j"${NPROC}" > /dev/null 2>&1
+
   if ! grep -qF "${marker}" "${kernel_makefile}"; then
     cat >> "${kernel_makefile}" <<EOF
 
@@ -1359,8 +1519,7 @@ EOF
     ARCH="${arch}" \
     ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
     "${make_verbose[@]}" \
-    CC="${clang}" \
-    ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} \
+    CC="${cc_wrapper}" \
     LLVM=1 \
     LLVM_IAS=1 \
     -j"${NPROC}" \

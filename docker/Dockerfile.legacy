@@ -29,7 +29,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       rsync \
       # Cross-compilation toolchains
       crossbuild-essential-armel \
+      crossbuild-essential-arm64 \
       gcc-arm-linux-gnueabi \
+      gcc-aarch64-linux-gnu \
       gcc-mipsel-linux-gnu \
       # Version control & misc
       git \
