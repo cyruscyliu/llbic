@@ -4,6 +4,61 @@
 # When invoked on a host with Docker available, re-exec ourselves in a container.
 #
 # Bypass with: LLBIC_NO_DOCKER=1 ./llbic ...
+_docker_kernel_version_from_args() {
+  local args=("$@")
+  local idx=0
+  local cmd=""
+  local expect_value=0
+
+  while [[ ${idx} -lt ${#args[@]} ]]; do
+    local arg="${args[${idx}]}"
+
+    if [[ -z "${cmd}" ]]; then
+      case "${arg}" in
+        --json|--verbose|-V) ((idx+=1)); continue ;;
+        --help|-h|help|version|--version|-v|list|extract) return 0 ;;
+        download|compile)
+          cmd="${arg}"
+          ((idx+=1))
+          continue
+          ;;
+        --) return 0 ;;
+        -*)
+          ((idx+=1))
+          continue
+          ;;
+        *)
+          echo "${arg}"
+          return 0
+          ;;
+      esac
+    else
+      if [[ ${expect_value} -eq 1 ]]; then
+        expect_value=0
+        ((idx+=1))
+        continue
+      fi
+
+      case "${arg}" in
+        --clang|-c|--output|-o|--arch|-a|--cross|--defconfig|--kconfig|-K)
+          expect_value=1
+          ;;
+        --help|-h|--)
+          return 0
+          ;;
+        -*)
+          ;;
+        *)
+          echo "${arg}"
+          return 0
+          ;;
+      esac
+    fi
+
+    ((idx+=1))
+  done
+}
+
 if [[ -z "${LLBIC_NO_DOCKER:-}" ]] && command -v docker >/dev/null 2>&1; then
   in_container=0
   [[ -f "/.dockerenv" ]] && in_container=1
@@ -26,22 +81,11 @@ if [[ -z "${LLBIC_NO_DOCKER:-}" ]] && command -v docker >/dev/null 2>&1; then
     if [[ -n "${LLBIC_IMAGE:-}" ]]; then
       image="${LLBIC_IMAGE}"
     else
-      kernel_ver=""
-      args=("$@")
-      idx=0
-      while [[ ${idx} -lt ${#args[@]} ]]; do
-        arg="${args[${idx}]}"
-    case "${arg}" in
-      --json|--verbose|-V) ((idx+=1)) ;;
-      --clang|-c|--output|-o|--arch|-a|--cross|--defconfig|--kconfig|-K) ((idx+=2)) ;; # skip flag + value
-      --) ((idx+=1)); break ;;
-      -*) ((idx+=1)) ;;
-      *) kernel_ver="${arg}"; break ;;
-    esac
-      done
+      kernel_ver="$(_docker_kernel_version_from_args "$@")"
+      kernel_ver="${kernel_ver#linux-}"
 
       major=""
-      if [[ "${kernel_ver}" =~ ^([0-9]+)\\. ]]; then
+      if [[ "${kernel_ver}" =~ ^([0-9]+)\. ]]; then
         major="${BASH_REMATCH[1]}"
       elif [[ "${kernel_ver}" =~ ^([0-9]+)$ ]]; then
         major="${BASH_REMATCH[1]}"
@@ -305,6 +349,63 @@ _resolve_clang() {
     echo "clang-${ver}"
   else
     echo "clang"
+  fi
+}
+
+_apply_kernel_compat_fixes() {
+  local kernel_src="$1"
+  local dtc_lexer="${kernel_src}/scripts/dtc/dtc-lexer.l"
+
+  # Older kernels ship a lexer that defines yylloc directly. Modern bison
+  # also emits a definition, which breaks host-tool linking for dtc.
+  if [[ -f "${dtc_lexer}" ]] && grep -q '^YYLTYPE yylloc;$' "${dtc_lexer}"; then
+    info "Applying compat fix: scripts/dtc yylloc declaration"
+    perl -0pi -e 's/^YYLTYPE yylloc;$/extern YYLTYPE yylloc;/m' "${dtc_lexer}"
+    _log_step "compat.fix path=${dtc_lexer} kind=dtc_yylloc_extern"
+  fi
+}
+
+_remove_injected_makefile_block() {
+  local kernel_makefile="$1"
+  local marker="$2"
+
+  if grep -qF "${marker}" "${kernel_makefile}"; then
+    local marker_line
+    marker_line="$(grep -nF "${marker}" "${kernel_makefile}" | head -1 | cut -d: -f1)"
+    head -n "$((marker_line - 2))" "${kernel_makefile}" > "${kernel_makefile}.tmp"
+    mv "${kernel_makefile}.tmp" "${kernel_makefile}"
+  fi
+}
+
+_clang_flags_override() {
+  local cross_compile="${1:-}"
+  local gcc_toolchain_dir=""
+  local target=""
+
+  [[ -n "${cross_compile}" ]] || return 0
+
+  target="${cross_compile%-}"
+  gcc_toolchain_dir="$(dirname "$(command -v "${cross_compile}elfedit")")"
+  [[ -n "${gcc_toolchain_dir}" ]] || return 0
+
+  printf '%s' "--target=${target} --prefix=${gcc_toolchain_dir}/${cross_compile} --gcc-toolchain=$(realpath "${gcc_toolchain_dir}/..") -no-integrated-as"
+}
+
+_kernel_compile_compat_flags() {
+  local kernel_name="${1:-}"
+  local arch="${2:-}"
+  local major=""
+  local minor=""
+
+  [[ "${kernel_name}" =~ ^linux-([0-9]+)\.([0-9]+) ]] || return 0
+  major="${BASH_REMATCH[1]}"
+  minor="${BASH_REMATCH[2]}"
+
+  # Older arm64 kernels are not robust against modern Clang emitting helper
+  # libc calls like stpcpy/bcmp, and their EFI stub build can still pick up
+  # stack protector references despite the subtree trying to disable them.
+  if [[ "${arch}" == "arm64" ]] && (( major < 5 || (major == 5 && minor <= 4) )); then
+    printf '%s' "-fno-stack-protector -fno-builtin-bcmp -fno-builtin-stpcpy"
   fi
 }
 
@@ -1091,23 +1192,31 @@ _compile_lto() {
   local -a kconfig_fragments=("$@")
   local -a make_extra=()
   local -a make_verbose=()
+  local clang_flags_override=""
+  local compat_cflags=""
   if [[ -n "${kbuild_dir}" ]]; then
     make_extra+=(O="${kbuild_dir}")
   else
     info "In-tree build: cleaning (make clean)..."
     make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean > /dev/null 2>&1 || warn "make clean failed; continuing"
   fi
+  _apply_kernel_compat_fixes "${kernel_src}"
   mapfile -t make_verbose < <(_make_verbose_args)
+  clang_flags_override="$(_clang_flags_override "${cross_compile}")"
+  compat_cflags="$(_kernel_compile_compat_flags "${kernel_name}" "${arch}")"
 
   info "Strategy: CONFIG_LTO_CLANG_FULL (native LTO)"
 
   local lto_analysis_flags="-Wno-error -Wno-error=return-type -O1 -fno-discard-value-names -g -fno-inline-functions -fno-inline"
+  local compat_marker="# --- kernel compat flags (auto-injected) ---"
   local kernel_makefile="${kernel_src}/Makefile"
   local marker="# --- LTO analysis flags (auto-injected) ---"
+  _remove_injected_makefile_block "${kernel_makefile}" "${compat_marker}"
+  _remove_injected_makefile_block "${kernel_makefile}" "${marker}"
 
   info "Generating defconfig + LTO..."
   make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
-    "${make_verbose[@]}" CC="${clang}" LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
+    "${make_verbose[@]}" CC="${clang}" ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
 
   local config_path="${kernel_src}/.config"
   [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
@@ -1124,10 +1233,19 @@ _compile_lto() {
     --disable MODVERSIONS
 
   make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
-    "${make_verbose[@]}" CC="${clang}" LLVM=1 LLVM_IAS=1 olddefconfig -j"${NPROC}" > /dev/null 2>&1
+    "${make_verbose[@]}" CC="${clang}" ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} LLVM=1 LLVM_IAS=1 olddefconfig -j"${NPROC}" > /dev/null 2>&1
 
   LLBIC_CTX_CONFIG_SHA256="$(_sha256_file "${config_path}")"
   _log_step "kconfig.final path=${config_path} sha256=${LLBIC_CTX_CONFIG_SHA256:-}"
+
+  if [[ -n "${compat_cflags}" ]] && ! grep -qF "${compat_marker}" "${kernel_makefile}"; then
+    cat >> "${kernel_makefile}" <<EOF
+
+${compat_marker}
+KBUILD_USERCFLAGS += ${compat_cflags}
+KBUILD_CFLAGS += ${compat_cflags}
+EOF
+  fi
 
   if ! grep -qF "${marker}" "${kernel_makefile}"; then
     cat >> "${kernel_makefile}" <<EOF
@@ -1145,17 +1263,14 @@ EOF
     ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
     "${make_verbose[@]}" \
     CC="${clang}" \
+    ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} \
     LLVM=1 \
     LLVM_IAS=1 \
     -j"${NPROC}" \
     2>&1 | tee "${output_dir}/kernel-build.log"
 
-  if grep -qF "${marker}" "${kernel_makefile}"; then
-    local marker_line
-    marker_line="$(grep -nF "${marker}" "${kernel_makefile}" | head -1 | cut -d: -f1)"
-    head -n "$((marker_line - 2))" "${kernel_makefile}" > "${kernel_makefile}.tmp"
-    mv "${kernel_makefile}.tmp" "${kernel_makefile}"
-  fi
+  _remove_injected_makefile_block "${kernel_makefile}" "${marker}"
+  _remove_injected_makefile_block "${kernel_makefile}" "${compat_marker}"
 
   local search_root="${kernel_src}"
   [[ -n "${kbuild_dir}" ]] && search_root="${kbuild_dir}"
@@ -1174,13 +1289,18 @@ _compile_irdumper() {
   local -a kconfig_fragments=("$@")
   local -a make_extra=()
   local -a make_verbose=()
+  local clang_flags_override=""
+  local compat_cflags=""
   if [[ -n "${kbuild_dir}" ]]; then
     make_extra+=(O="${kbuild_dir}")
   else
     info "In-tree build: cleaning (make clean)..."
     make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean > /dev/null 2>&1 || warn "make clean failed; continuing"
   fi
+  _apply_kernel_compat_fixes "${kernel_src}"
   mapfile -t make_verbose < <(_make_verbose_args)
+  clang_flags_override="$(_clang_flags_override "${cross_compile}")"
+  compat_cflags="$(_kernel_compile_compat_flags "${kernel_name}" "${arch}")"
 
   info "Strategy: IRDumper pass plugin (fallback)"
 
@@ -1201,16 +1321,28 @@ _compile_irdumper() {
   info "IRDumper: ${irdumper_so}"
 
   local kernel_makefile="${kernel_src}/Makefile"
+  local compat_marker="# --- kernel compat flags (auto-injected) ---"
   local marker="# --- IRDumper flags (auto-injected) ---"
+  _remove_injected_makefile_block "${kernel_makefile}" "${compat_marker}"
+  _remove_injected_makefile_block "${kernel_makefile}" "${marker}"
 
   info "Generating defconfig..."
   make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
-    "${make_verbose[@]}" CC="${clang}" LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
+    "${make_verbose[@]}" CC="${clang}" ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
 
   local config_path="${kernel_src}/.config"
   [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
   LLBIC_CTX_CONFIG_PATH="$(_normalize_path_for_json "${config_path}")"
   _apply_kconfig_fragments "${kernel_src}" "${kbuild_dir}" "${config_path}" "${kconfig_fragments[@]}"
+
+  if [[ -n "${compat_cflags}" ]] && ! grep -qF "${compat_marker}" "${kernel_makefile}"; then
+    cat >> "${kernel_makefile}" <<EOF
+
+${compat_marker}
+KBUILD_USERCFLAGS += ${compat_cflags}
+KBUILD_CFLAGS += ${compat_cflags}
+EOF
+  fi
 
   if ! grep -qF "${marker}" "${kernel_makefile}"; then
     cat >> "${kernel_makefile}" <<EOF
@@ -1228,6 +1360,7 @@ EOF
     ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
     "${make_verbose[@]}" \
     CC="${clang}" \
+    ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} \
     LLVM=1 \
     LLVM_IAS=1 \
     -j"${NPROC}" \
@@ -1237,12 +1370,8 @@ EOF
   _log_step "kconfig.final path=${config_path} sha256=${LLBIC_CTX_CONFIG_SHA256:-}"
 
   # Restore Makefile
-  if grep -qF "${marker}" "${kernel_makefile}"; then
-    local marker_line
-    marker_line="$(grep -nF "${marker}" "${kernel_makefile}" | head -1 | cut -d: -f1)"
-    head -n "$((marker_line - 2))" "${kernel_makefile}" > "${kernel_makefile}.tmp"
-    mv "${kernel_makefile}.tmp" "${kernel_makefile}"
-  fi
+  _remove_injected_makefile_block "${kernel_makefile}" "${marker}"
+  _remove_injected_makefile_block "${kernel_makefile}" "${compat_marker}"
 
   local search_root="${kernel_src}"
   [[ -n "${kbuild_dir}" ]] && search_root="${kbuild_dir}"
