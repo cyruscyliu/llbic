@@ -1101,6 +1101,10 @@ _compile_lto() {
 
   info "Strategy: CONFIG_LTO_CLANG_FULL (native LTO)"
 
+  local lto_analysis_flags="-Wno-error -Wno-error=return-type -O1 -fno-discard-value-names -g -fno-inline-functions -fno-inline"
+  local kernel_makefile="${kernel_src}/Makefile"
+  local marker="# --- LTO analysis flags (auto-injected) ---"
+
   info "Generating defconfig + LTO..."
   make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
     "${make_verbose[@]}" CC="${clang}" LLVM=1 LLVM_IAS=1 "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
@@ -1125,6 +1129,15 @@ _compile_lto() {
   LLBIC_CTX_CONFIG_SHA256="$(_sha256_file "${config_path}")"
   _log_step "kconfig.final path=${config_path} sha256=${LLBIC_CTX_CONFIG_SHA256:-}"
 
+  if ! grep -qF "${marker}" "${kernel_makefile}"; then
+    cat >> "${kernel_makefile}" <<EOF
+
+${marker}
+KBUILD_USERCFLAGS += ${lto_analysis_flags}
+KBUILD_CFLAGS += ${lto_analysis_flags}
+EOF
+  fi
+
   info "Compiling with ${clang} + full LTO..."
   make -C "${kernel_src}" \
     "${make_extra[@]}" \
@@ -1136,6 +1149,13 @@ _compile_lto() {
     LLVM_IAS=1 \
     -j"${NPROC}" \
     2>&1 | tee "${output_dir}/kernel-build.log"
+
+  if grep -qF "${marker}" "${kernel_makefile}"; then
+    local marker_line
+    marker_line="$(grep -nF "${marker}" "${kernel_makefile}" | head -1 | cut -d: -f1)"
+    head -n "$((marker_line - 2))" "${kernel_makefile}" > "${kernel_makefile}.tmp"
+    mv "${kernel_makefile}.tmp" "${kernel_makefile}"
+  fi
 
   local search_root="${kernel_src}"
   [[ -n "${kbuild_dir}" ]] && search_root="${kbuild_dir}"
