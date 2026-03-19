@@ -261,7 +261,7 @@ set -euo pipefail
 
 VERSION="0.1.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="${LLBIC_ROOT:-$PWD}"
+ROOT_DIR="${LLBIC_ROOT:-$(_host_script_dir)}"
 SOURCES_DIR="${LLBIC_SOURCES:-${ROOT_DIR}/sources}"
 BUILD_DIR="${LLBIC_OUTPUT:-${ROOT_DIR}/build}"
 CONF_FILE="${LLBIC_CONF:-${ROOT_DIR}/sources.conf}"
@@ -714,6 +714,14 @@ _llvm_make_args() {
     printf '%s\n' "LLVM=1"
   fi
   printf '%s\n' "LLVM_IAS=1"
+}
+
+_opaque_pointer_disable_flags() {
+  local llvm_major="${1:-}"
+
+  if [[ -n "${llvm_major}" && "${llvm_major}" -ge 15 && "${llvm_major}" -lt 17 ]]; then
+    printf '%s' "-Xclang -no-opaque-pointers"
+  fi
 }
 
 _clang_flags_override() {
@@ -1837,6 +1845,7 @@ _compile_lto() {
   local -a scoped_targets=("${LLBIC_CTX_MAKE_TARGETS[@]}")
   local clang_flags_override=""
   local compat_cflags=""
+  local opaque_ptr_flags=""
   mkdir -p "${output_dir}"
   if [[ -n "${kbuild_dir}" ]]; then
     make_extra+=(O="${kbuild_dir}")
@@ -1850,6 +1859,7 @@ _compile_lto() {
   mapfile -t make_verbose < <(_make_verbose_args)
   clang_flags_override="$(_clang_flags_override "${kernel_name}" "${arch}" "${cross_compile}")"
   compat_cflags="$(_kernel_compile_compat_flags "${kernel_name}" "${arch}")"
+  opaque_ptr_flags="$(_opaque_pointer_disable_flags "${llvm_major}")"
 
   info "Strategy: CONFIG_LTO_CLANG_FULL (native LTO)"
 
@@ -1890,6 +1900,15 @@ _compile_lto() {
 ${compat_marker}
 KBUILD_USERCFLAGS += ${compat_cflags}
 KBUILD_CFLAGS += ${compat_cflags}
+EOF
+  fi
+
+  if [[ -n "${opaque_ptr_flags}" ]]; then
+    cat >> "${kernel_makefile}" <<EOF
+
+# --- disable opaque pointers (auto-injected) ---
+KBUILD_USERCFLAGS += ${opaque_ptr_flags}
+KBUILD_CFLAGS += ${opaque_ptr_flags}
 EOF
   fi
 
@@ -1942,6 +1961,7 @@ EOF
 
   _remove_injected_makefile_block "${kernel_makefile}" "${marker}"
   _remove_injected_makefile_block "${kernel_makefile}" "${compat_marker}"
+  _remove_injected_makefile_block "${kernel_makefile}" "# --- disable opaque pointers (auto-injected) ---"
 
   local search_root="${kernel_src}"
   [[ -n "${kbuild_dir}" ]] && search_root="${kbuild_dir}"
