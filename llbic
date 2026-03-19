@@ -414,11 +414,26 @@ _remove_injected_makefile_block() {
 }
 
 _clang_flags_override() {
-  local cross_compile="${1:-}"
+  local kernel_name="${1:-}"
+  local arch="${2:-}"
+  local cross_compile="${3:-}"
   local gcc_toolchain_dir=""
   local target=""
+  local major=""
+  local minor=""
 
   [[ -n "${cross_compile}" ]] || return 0
+  [[ "${arch}" == "arm64" ]] || return 0
+  [[ "${kernel_name}" =~ ^linux-([0-9]+)\.([0-9]+) ]] || return 0
+  major="${BASH_REMATCH[1]}"
+  minor="${BASH_REMATCH[2]}"
+
+  # Older arm64 kernels rely on a GNU binutils-backed Clang invocation.
+  # Applying this override to modern LTO builds prevents native LLVM IR .o
+  # emission, which is what llbic later collects.
+  if (( major > 5 || (major == 5 && minor > 4) )); then
+    return 0
+  fi
 
   target="${cross_compile%-}"
   gcc_toolchain_dir="$(dirname "$(command -v "${cross_compile}elfedit")")"
@@ -1330,7 +1345,7 @@ _compile_lto() {
   fi
   _apply_kernel_compat_fixes "${kernel_src}"
   mapfile -t make_verbose < <(_make_verbose_args)
-  clang_flags_override="$(_clang_flags_override "${cross_compile}")"
+  clang_flags_override="$(_clang_flags_override "${kernel_name}" "${arch}" "${cross_compile}")"
   compat_cflags="$(_kernel_compile_compat_flags "${kernel_name}" "${arch}")"
 
   info "Strategy: CONFIG_LTO_CLANG_FULL (native LTO)"
@@ -1442,7 +1457,7 @@ _compile_irdumper() {
   fi
   _apply_kernel_compat_fixes "${kernel_src}"
   mapfile -t make_verbose < <(_make_verbose_args)
-  clang_flags_override="$(_clang_flags_override "${cross_compile}")"
+  clang_flags_override="$(_clang_flags_override "${kernel_name}" "${arch}" "${cross_compile}")"
   compat_cflags="$(_kernel_compile_compat_flags "${kernel_name}" "${arch}")"
 
   info "Strategy: IRDumper pass plugin (fallback)"
