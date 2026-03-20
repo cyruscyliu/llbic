@@ -115,7 +115,7 @@ def load_matrix(path: Path) -> tuple[dict[str, Any], list[Target]]:
 
 
 def build_llbic_cmd(t: Target) -> list[str]:
-    cmd = ["./llbic", t.kernel]
+    cmd = ["./llbic", "build", t.kernel]
     if t.layout == "outtree":
         cmd.append("--out-of-tree")
     elif t.layout == "intree":

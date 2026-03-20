@@ -6,16 +6,17 @@ stable command.
 [![Container Registry](https://img.shields.io/badge/ghcr.io-llbic-blue)](https://github.com/cyruscyliu/llbic/pkgs/container/llbic)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-`llbic` is a one-shot interface for turning a Linux kernel version into a build
-workspace.  It is designed for researchers, tool builders, and agent workflows
-that need stable kernel artifacts instead of ad hoc scripts.
+`llbic` is a Linux kernel build CLI with an explicit staged command model and a
+stable machine-facing manifest. It is designed for researchers, tool builders,
+and agent workflows that need reusable kernel artifacts instead of ad hoc
+scripts.
 
 ## Quick start
 
-Run the local wrapper:
+Run the canonical build command:
 
 ```bash
-./llbic 6.12
+./llbic build 6.12
 ```
 
 This downloads the kernel source, builds it, and writes output to:
@@ -28,30 +29,33 @@ out/linux-6.12/
   bitcode_files.txt
 ```
 
-`./llbic` will run inside Docker when Docker is available, and will build the
-local image if it is missing. Use `LLBIC_REBUILD=1` to force rebuilding the
-image.
+`./llbic` delegates backend execution to the shared
+[`research-runtime`](/home/debian/Projects/research-os/runtime/research-runtime/README.md)
+layer when it is available. Docker remains the default backend, and the local
+image is built automatically if it is missing. Use `LLBIC_REBUILD=1` to force
+rebuilding the image, or `LLBIC_BACKEND=host` to bypass Docker on a prepared
+host toolchain.
 
 Use `--clang` to pick a toolchain:
 
 ```bash
-./llbic 6.12 --clang 18
+./llbic build 6.12 --clang 18
 ```
 
 Use `--arch` (and optionally `--cross`) to build for another architecture:
 
 ```bash
-./llbic 6.12 --arch arm64
-./llbic 6.12 --arch arm --cross arm-linux-gnueabi-
+./llbic build 6.12 --arch arm64
+./llbic build 6.12 --arch arm --cross arm-linux-gnueabi-
 ```
 
-For agents, use JSON output:
+For agents, use structured output:
 
 ```bash
-./llbic --json 6.12
+./llbic build 6.12 --json
 ```
 
-What you get from one run:
+What you get from one build:
 
 - Resolved kernel source tarball from `kernel.org`
 - Extracted source tree
@@ -63,9 +67,9 @@ What you get from one run:
 
 Example response:
 
-Note: when `./llbic` runs inside Docker, the JSON paths are container paths (for
-example `/out/...` and `/work/...`). On the host, these correspond to
-`./out/...` and the repo directory.
+Stable path fields are workspace-relative, even when `./llbic` runs inside
+Docker. Use the `runtime` and `paths` blocks when you need the local container
+or host resolution.
 
 ```json
 {
@@ -73,19 +77,28 @@ example `/out/...` and `/work/...`). On the host, these correspond to
   "kernel_version": "6.12",
   "kernel_name": "linux-6.12",
   "source_url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.tar.xz",
-  "source_dir": "/work/sources/linux-6.12",
-  "output_dir": "/out/linux-6.12",
-  "log_file": "/out/linux-6.12/llbic.log",
-  "kernel_build_log": "/out/linux-6.12/kernel-build.log",
+  "source_dir": "sources/linux-6.12",
+  "output_dir": "out/linux-6.12",
+  "log_file": "out/linux-6.12/llbic.log",
+  "kernel_build_log": "out/linux-6.12/kernel-build.log",
   "arch": "x86_64",
   "cross_compile": null,
   "defconfig": "defconfig",
   "build_layout": "intree",
+  "scope": "full",
+  "requested_files": [],
+  "make_targets": [],
   "kconfig_fragments": [],
-  "bitcode_root": "/work/sources/linux-6.12",
-  "bitcode_list_file": "/out/linux-6.12/bitcode_files.txt",
+  "bitcode_root": "sources/linux-6.12",
+  "bitcode_list_file": "out/linux-6.12/bitcode_files.txt",
   "clang": "clang",
   "llvm_major": "18",
+  "runtime": {
+    "execution": "docker",
+    "workspace_root": "/work",
+    "sources_root": "/work/sources",
+    "output_root": "/out"
+  },
   "bitcode_files_rel": [
     "kernel/sched/core.bc"
   ],
@@ -98,7 +111,50 @@ example `/out/...` and `/work/...`). On the host, these correspond to
 }
 ```
 
+## Command Model
+
+The public command tree is:
+
+```text
+llbic build <version>
+llbic download [version|url ...]
+llbic extract
+llbic compile [kernel-name]
+llbic inspect <output-dir|llbic.json>
+llbic clean [build|sources|all]
+```
+
+Use the staged commands when you want explicit Unix-style boundaries. Use
+`build` when you want the full one-shot workflow.
+
 ## Usage
+
+Canonical one-shot build:
+
+```bash
+./llbic build 6.18.16 --arch arm64 --out-of-tree
+```
+
+Fetch and extract sources explicitly:
+
+```bash
+./llbic download 6.18.16 --json
+./llbic extract --json
+```
+
+Inspect an existing build without rerunning:
+
+```bash
+./llbic inspect ./out/linux-6.18.16
+./llbic inspect ./out/linux-6.18.16/llbic.json --json
+```
+
+Compile only one file for debugging or verification:
+
+```bash
+./llbic build 6.18.16 --out-of-tree --file kernel/sched/core.c --json
+./llbic compile linux-6.18.16 --clang 18 --file kernel/sched/core.c --json
+```
 
 `--out-of-tree` builds with `make O=<dir>` so the build output lives outside the
 extracted source tree. This avoids conflicts when rebuilding the same kernel
@@ -111,7 +167,36 @@ with `--output`):
 - `llbic.json`: machine-readable build summary
 - `bitcode_files.txt`: list of detected LLVM bitcode files (relative paths under `bitcode_root`)
 
-`--json` also prints the JSON summary to stdout.
+`build --json` prints the build summary to stdout and also writes `llbic.json`.
+Staged commands such as `download`, `extract`, `compile`, and `inspect` also
+support `--json` and return structured status on stdout.
+
+Stable build fields include:
+
+- `status`
+- `exit_code`
+- `kernel_version`
+- `kernel_name`
+- `source_dir`
+- `output_dir`
+- `arch`
+- `cross_compile`
+- `defconfig`
+- `build_layout`
+- `scope`
+- `requested_files`
+- `make_targets`
+- `bitcode_root`
+- `bitcode_list_file`
+- `bitcode_files`
+- `bitcode_count`
+- `config_path`
+- `config_sha256`
+- `kernel_images`
+
+`runtime` and `paths` are convenience metadata for resolving those portable
+paths in the current environment. Agents should treat the relative scalar fields
+as the stable artifact identities.
 
 Note: `kernel/time/timeconst.bc` in the Linux source tree is an input for the `bc`
 calculator (used to generate `include/generated/timeconst.h`), not LLVM bitcode.
@@ -134,7 +219,7 @@ Flags:
 Example: build ARM64 `defconfig` plus your own config fragment:
 
 ```bash
-./llbic 6.18.16 --arch arm64 --out-of-tree -K ./my-kconfig.fragment
+./llbic build 6.18.16 --arch arm64 --out-of-tree -K ./my-kconfig.fragment
 ```
 
 ## Status board

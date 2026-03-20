@@ -16,7 +16,7 @@ Good contributions include:
 
 - Keep changes focused.
 - Prefer updating the Bash CLI in `llbic` for the main workflow.
-- Preserve the one-shot contract: `llbic <version>`.
+- Preserve the canonical one-shot contract: `llbic build <version>`.
 - If you change output behavior, update `README.md`.
 
 ## Development
@@ -33,7 +33,7 @@ Run the CLI locally:
 
 ```bash
 ./llbic --help
-./llbic 6.12 --json
+./llbic build 6.12 --json
 ```
 
 ## Pull requests
