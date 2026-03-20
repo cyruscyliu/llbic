@@ -16,6 +16,7 @@ so builds are easy to automate, inspect, and reuse.
 
 For agent workflows, start by asking `llbic` for its command surface and prefer
 machine-readable output whenever the result will be consumed programmatically.
+For a more detailed repo-local guide, see [SKILL.md](./SKILL.md).
 
 ```text
 Use ./llbic --help first to discover the available commands and flags.
