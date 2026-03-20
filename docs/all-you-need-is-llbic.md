@@ -1,7 +1,7 @@
 # Background
 
-This document summarizes common LLVM bitcode generation models and how **llbic**
-has evolved.
+This document summarizes common LLVM bitcode generation models and how
+**llbic** has evolved.
 
 Important caveat: in the Linux kernel tree, not every file ending in `.bc` is
 LLVM bitcode. For example, `kernel/time/timeconst.bc` is an input to the `bc`
@@ -13,22 +13,22 @@ bitcode`.
 (1) -------------> +.bc+ -----> +.o+ ----> +ELF+ (generic)
                    +---+        +--+       +---+
 
-     -flto -c  +---+  -flto   +---+
-(2) ---------> +.bc+ -------> +ELF+ (lto)
-               +---+          +---+
-
      --emit-llvm   +---+  llvm-link   +---+
-(3) -------------> +.bc+ -----------> +.bc+  (legacy llbic)
+(2) -------------> +.bc+ -----------> +.bc+  (legacy llbic)
                    +---+              +---+
 
+     -flto -c  +---+  -flto   +---+
+(3) ---------> +.bc+ -------> +ELF+ (lto) (llbic today)
+               +---+          +---+
+
      clang + IRDumper   +--+      +---+
-(4) ------------------> +.o+  +-> +.bc+  (llbic today: per-TU dump)
+(4) ------------------> +.o+  +-> +.bc+  (llbic today as a fallback)
                         +--+  |   +---+
                               |
                               +--- normal kernel build artifacts
 ```
 
-## Legacy: NAIVE llvm-link (Removed)
+## Legacy: NAIVE llvm-link
 
 Early versions of this repository used a dr_checker-inspired workflow:
 
@@ -48,43 +48,55 @@ This was useful as a proof-of-concept, but it was brittle in practice:
 - The approach effectively reimplements a lot of the kernel build system (and
   breaks across versions/architectures/toolchains).
 
-The legacy Python pipeline lived in `llbic.py` plus `bin/*` (compile, dependency
-analysis, and "link-tree" construction). It has since been removed.
+Reference: dr_checker (https://github.com/ucsb-seclab/dr_checker).
 
-Reference: dr_checker (https://github.com/ucsb-seclab/dr_checker). The legacy
-pipeline also produced a Graphviz-style dependency tree for some kernels/arches
-to visualize the reconstructed link structure.
+## Relative Models
 
-## Related Models
-
-(1) [WLLVM](https://github.com/travitch/whole-program-llvm) provides python-based
-compiler wrappers that work in two steps. The wrappers first invoke the compiler
-as normal. Then, for each object file, they call a bitcode compiler to produce
-LLVM bitcode. The wrappers also store the location of the generated bitcode file
-in a dedicated section of the object file (e.g. via objcopy). When object files
-are linked together, the contents of the dedicated sections are concatenated (so
-we don't lose the locations of any of the constituent bitcode files). After the
-build completes, one can use a WLLVM utility to read the contents of the
-dedicated section and link all of the bitcode into a single whole-program bitcode
-file (`llvm-link`). This utility works for both executables and native
-libraries.
+(1) [WLLVM](https://github.com/travitch/whole-program-llvm) provides
+python-based compiler wrappers that work in two steps. The wrappers first
+invoke the compiler as normal. Then, for each object file, they call a bitcode
+compiler to produce LLVM bitcode. The wrappers also store the location of the
+generated bitcode file in a dedicated section of the object file (e.g. via
+objcopy). When object files are linked together, the contents of the dedicated
+sections are concatenated (so we don't lose the locations of any of the
+constituent bitcode files). After the build completes, one can use a WLLVM
+utility to read the contents of the dedicated section and link all of the
+bitcode into a single whole-program bitcode file (`llvm-link`). This utility
+works for both executables and native libraries.
 
 (2) [LTO](https://llvm.org/docs/LinkTimeOptimization.html) is intermodular
 optimization performed during the link stage. In this model, the linker treats
-LLVM bitcode files like native object files and allows mixing and matching among
-them. The linker uses `libLTO` to handle LLVM bitcode files. FYI:
-[ThinLTO](http://clang.llvm.org/docs/ThinLTO.html): scalable and incremental LTO.
+LLVM bitcode files like native object files and allows mixing and matching
+among them. The linker uses `libLTO` to handle LLVM bitcode files.
 
-## Historical Review (llbic Today)
+The `-flto` flag tells Clang to emit LLVM bitcode for later link-time
+optimization instead of lowering each translation unit directly to a final
+native object file. In practice there are two main LTO modes:
 
-The current `./llbic` script does **not** try to reconstruct a full link tree or
-force a monolithic `vmlinux.bc`. Instead, it focuses on producing a reproducible
-kernel build and collecting whatever LLVM bitcode the chosen strategy naturally
-emits.
+- Full LTO: the linker merges the whole program into one optimization unit.
+  This can produce strong whole-program optimization results, but it is more
+  memory-intensive and slower on large builds such as the Linux kernel.
+- ThinLTO: the linker keeps per-module summaries and performs scalable
+  cross-module optimization without fully merging the entire program into one
+  unit. This is usually a better fit for large codebases because it preserves
+  more incremental and parallel build behavior.
+
+FYI: [ThinLTO](http://clang.llvm.org/docs/ThinLTO.html) is LLVM's scalable and
+incremental LTO model.
+
+## llbic Today
+
+The current `./llbic` script does **not** try to reconstruct a full link tree
+or force a monolithic `vmlinux.bc`. Instead, it focuses on producing a
+reproducible kernel build and collecting whatever LLVM bitcode the chosen
+strategy naturally emits.
 
 1. Kernel-native Clang LTO (preferred when supported)
    - llbic enables a kernel configuration that uses Clang LTO (for example
      `CONFIG_LTO_CLANG_FULL`) and builds with `LLVM=1`.
+   - In this mode, the kernel's own Clang/LTO build flow is responsible for
+     producing LLVM bitcode as part of the normal compilation and link stages;
+     llbic does not inject a separate bitcode-dumping pass.
    - llbic then searches the relevant build root for real LLVM bitcode modules
      (verified by file type, not by filename) and writes a manifest.
 
