@@ -156,6 +156,14 @@ Use `build` when you want the full workflow in one command:
 ./llbic build 6.18.16 --arch arm64 --out-of-tree
 ```
 
+Use `--rust` when you want `llbic` to enable Rust support, Rust samples, and
+the Rust sample configs automatically. The current Rust path is intentionally
+gated to kernels `>= 6.19.7`:
+
+```bash
+./llbic build 6.19.7 --rust --out-of-tree --json
+```
+
 Use scoped compilation to build only selected translation units for debugging,
 verification, or targeted bitcode generation:
 
@@ -211,6 +219,7 @@ Flags:
 - `--defconfig`: kbuild config target (default: `defconfig`)
 - `--kconfig, -K`: merge one or more Kconfig fragments into the generated `.config` (repeatable)
 - `--file, -f`: compile only selected source-relative translation units
+- `--rust`: enable Rust support, `SAMPLES`, `SAMPLES_RUST`, and the Rust sample configs automatically (`>= 6.19.7`)
 - `--output, -o`: write the build to an explicit output directory; otherwise `llbic` uses `out/linux-<version>-<arch>-clang<version>/`
 - `--json`: print a structured status or manifest to stdout
 - `--verbose, -V`: pass `V=1` to the kernel build
@@ -228,6 +237,15 @@ runtime overrides, not build-definition flags. `llbic` now uses the prepared
 host toolchain by default. Set `LLBIC_BACKEND=docker` when you want the
 containerized toolchain path, and use `LLBIC_REBUILD=1` to force rebuilding the
 selected Docker image.
+
+For host Rust builds, install the Rust kernel prerequisites with:
+
+```bash
+bash scripts/install_rust_env.sh
+```
+
+The Docker images use the same installer in system mode, so the host and
+container Rust paths stay aligned.
 
 `build` always writes `llbic.json`, even on failure. `--json` additionally
 emits structured output to stdout. Staged commands such as `download`,

@@ -82,10 +82,22 @@ One-shot build:
 ./llbic build 6.18.16 --out-of-tree --json
 ```
 
-Scoped build for a single translation unit:
+Scoped build for a single C translation unit:
 
 ```bash
 ./llbic build 6.18.16 --out-of-tree --file kernel/sched/core.c --json
+```
+
+Rust-enabled build:
+
+```bash
+./llbic build 6.19.7 --out-of-tree --rust --json
+```
+
+Prepare a host Rust toolchain for Rust-enabled kernel builds:
+
+```bash
+./scripts/install_rust_env.sh
 ```
 
 Compile an already extracted tree:
@@ -105,6 +117,22 @@ Collect the support status board from completed build manifests:
 ```bash
 python3 scripts/collect_status.py
 ```
+
+## Scoped Build Semantics
+
+`--file` maps cleanly to Kbuild targets for standalone C and assembly inputs.
+For example, `kernel/sched/core.c` maps to `kernel/sched/core.o` and can be
+compiled as an individual translation unit.
+
+Rust is different. A path like `rust/kernel/workqueue.rs` is a Rust module
+inside the kernel Rust crate, not a standalone crate target. Asking Kbuild to
+compile that `.rs` file directly loses the expected crate context and fails on
+kernel imports/macros such as `crate::prelude::*`, `pin_init!`, and
+`#[pin_data]`.
+
+Use `--rust` to enable Rust support, Rust samples, and the required Kconfig
+fragment for Rust-capable kernels. Do not assume that an arbitrary `.rs` path
+under `rust/` behaves like a standalone C translation unit.
 
 ## Artifact Contract
 

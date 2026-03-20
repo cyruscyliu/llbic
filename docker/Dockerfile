@@ -1,6 +1,9 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV PATH=/usr/local/cargo/bin:${PATH}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       # Basic build tools
@@ -85,6 +88,11 @@ RUN for v in 14 15 16 18; do \
 RUN python3 -m pip install --break-system-packages \
       networkx \
       graphviz
+
+COPY scripts/install_rust_env.sh /tmp/install_rust_env.sh
+RUN chmod +x /tmp/install_rust_env.sh \
+      && /tmp/install_rust_env.sh --system \
+      && rm -f /tmp/install_rust_env.sh
 
 # Install llbic CLI
 COPY llbic /usr/local/bin/llbic

@@ -273,6 +273,7 @@ BUILD_DIR="${LLBIC_OUTPUT:-${ROOT_DIR}/out}"
 CONF_FILE="${LLBIC_CONF:-${ROOT_DIR}/sources.conf}"
 NPROC="${NPROC:-$(nproc)}"
 : "${LLBIC_ACTIVE_BACKEND:=host}"
+MIN_RUST_KERNEL_VERSION="${LLBIC_MIN_RUST_KERNEL_VERSION:-6.19.7}"
 JSON_OUTPUT=0
 VERBOSE=0
 LAST_SOURCE_URL=""
@@ -316,6 +317,7 @@ LLBIC_CTX_LAYOUT_IS_DEFAULT=1
 LLBIC_CTX_SCOPE="full"
 LLBIC_CTX_REQUESTED_FILES=()
 LLBIC_CTX_MAKE_TARGETS=()
+LLBIC_CTX_RUST_ENABLED=0
 
 # --- Colors ---
 RED=$'\033[0;31m'
@@ -563,9 +565,9 @@ _validate_kernel_version() {
   # So we allow broad "kernel-like" strings but forbid path traversal, whitespace,
   # and characters that could be interpreted by tools or the filesystem.
   #
-  # Examples allowed: 6.12, 2.6.32.71, 6.12-rc1, 6.1.0-rt11, 6.9.0-next-20240510
+  # Examples allowed: 6.18.16, 2.6.32.71, 6.18.16-rc1, 6.1.0-rt11, 6.9.0-next-20240510
   if [[ -z "${ver}" ]]; then
-    die "Kernel version required. Example: llbic 6.12"
+    die "Kernel version required. Example: llbic 6.18.16"
   fi
   if [[ ${#ver} -gt 128 ]]; then
     die "Kernel version is too long (${#ver} > 128): '${ver}'"
@@ -581,6 +583,13 @@ _validate_kernel_version() {
   fi
   if [[ ! "${ver}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
     die "Invalid kernel version: '${ver}'. Allowed chars: A-Z a-z 0-9 . _ + -"
+  fi
+}
+
+_require_rust_kernel_minimum() {
+  local ver="$1"
+  if ! _version_ge "${ver}" "${MIN_RUST_KERNEL_VERSION}"; then
+    die "Rust-enabled llbic currently requires kernel version >= ${MIN_RUST_KERNEL_VERSION} (got ${ver})."
   fi
 }
 
@@ -622,10 +631,10 @@ _normalize_make_target_from_file() {
   value="$(_normalize_kernel_relative_file "$1")"
 
   case "${value}" in
-    *.c|*.S|*.s) echo "${value%.*}.o" ;;
+    *.c|*.S|*.s|*.rs) echo "${value%.*}.o" ;;
     *.o) echo "${value}" ;;
     *)
-      die "--file expects a kernel .c, .S, .s, or .o path: ${value}"
+      die "--file expects a kernel .c, .S, .s, .rs, or .o path: ${value}"
       ;;
   esac
 }
@@ -692,6 +701,51 @@ _require_clang_or_suggest_docker() {
   fi
 
   die "${clang_bin} not found"
+}
+
+_write_rust_kconfig_fragment() {
+  local kernel_src="$1"
+  local fragment_path="$2"
+  local rust_kconfig="${kernel_src}/samples/rust/Kconfig"
+
+  [[ -f "${rust_kconfig}" ]] || die "Rust sample Kconfig not found: ${rust_kconfig}"
+  mkdir -p -- "$(dirname "${fragment_path}")"
+
+  {
+    printf '%s\n' 'CONFIG_RUST=y'
+    printf '%s\n' 'CONFIG_SAMPLES=y'
+    printf '%s\n' 'CONFIG_SAMPLES_RUST=y'
+    awk '
+      /^config SAMPLE_RUST_[A-Z0-9_]+$/ { symbol=$2; next }
+      symbol != "" && /^[[:space:]]*bool[[:space:]]/ { print "CONFIG_" symbol "=y"; symbol=""; next }
+      symbol != "" && /^[[:space:]]*tristate[[:space:]]/ { print "CONFIG_" symbol "=m"; symbol=""; next }
+      symbol != "" && /^[^[:space:]]/ { symbol="" }
+    ' "${rust_kconfig}"
+  } > "${fragment_path}"
+}
+
+_require_rustavailable() {
+  local kernel_src="$1"
+  local kbuild_dir="${2:-}"
+  local arch="${3:-x86_64}"
+  local cross_compile="${4:-}"
+  local clang="${5:-clang}"
+  local clang_flags_override="${6:-}"
+  shift 6
+  local -a make_llvm=("$@")
+  local -a make_extra=()
+
+  [[ -n "${kbuild_dir}" ]] && make_extra+=(O="${kbuild_dir}")
+  info "Checking Rust kernel prerequisites..."
+  make -C "${kernel_src}" \
+    "${make_extra[@]}" \
+    ARCH="${arch}" \
+    ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+    CC="${clang}" \
+    ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} \
+    "${make_llvm[@]}" \
+    rustavailable > /dev/null 2>&1 || \
+    die "Rust toolchain is not ready for this kernel (make rustavailable failed). Install the Rust environment or use the Docker backend."
 }
 
 _apply_kernel_compat_fixes() {
@@ -1221,6 +1275,7 @@ _emit_result_json() {
   printf '"defconfig_is_default":%s,' "${LLBIC_CTX_DEFCONFIG_IS_DEFAULT:-1}"
   printf '"build_layout":"%s",' "$(_json_escape "${LLBIC_CTX_BUILD_LAYOUT:-}")"
   printf '"build_layout_is_default":%s,' "${LLBIC_CTX_LAYOUT_IS_DEFAULT:-1}"
+  printf '"rust_enabled":%s,' "${LLBIC_CTX_RUST_ENABLED:-0}"
   printf '"scope":"%s",' "$(_json_escape "${LLBIC_CTX_SCOPE:-full}")"
   printf '"requested_files":'
   _json_array LLBIC_CTX_REQUESTED_FILES
@@ -1420,6 +1475,7 @@ cmd_build() {
   local clang_version=""
   local output_dir=""
   local build_layout="intree"
+  local rust_enabled=0
   local arch="x86_64"
   local cross_compile=""
   local defconfig_target="defconfig"
@@ -1440,6 +1496,7 @@ cmd_build() {
         ;;
       --json)      JSON_OUTPUT=1; shift ;;
       --verbose|-V) VERBOSE=1; shift ;;
+      --rust) rust_enabled=1; shift ;;
       --output|-o)
         [[ $# -ge 2 ]] || die "--output requires a value (example: --output ./out)"
         output_dir="$2"; shift 2
@@ -1485,7 +1542,7 @@ cmd_build() {
         ;;
       *)
         if [[ ${saw_kernel_ver} -eq 1 ]]; then
-          die "Too many positional arguments. Expected a single kernel version like: 6.12"
+          die "Too many positional arguments. Expected a single kernel version like: 6.18.16"
         fi
         kernel_ver="$1"
         saw_kernel_ver=1
@@ -1494,10 +1551,13 @@ cmd_build() {
     esac
   done
 
-  [[ -n "${kernel_ver}" ]] || die "Kernel version required. Example: llbic 6.12"
+  [[ -n "${kernel_ver}" ]] || die "Kernel version required. Example: llbic 6.18.16"
 
   kernel_ver="${kernel_ver#linux-}"
   _validate_kernel_version "${kernel_ver}"
+  if [[ "${rust_enabled}" -eq 1 ]]; then
+    _require_rust_kernel_minimum "${kernel_ver}"
+  fi
   _validate_clang_version "${clang_version}"
   [[ -z "${output_dir}" ]] || _require_one_line "output dir" "${output_dir}"
   _validate_arch "${arch}"
@@ -1534,6 +1594,7 @@ cmd_build() {
 
   local bc_output=""
   bc_output="$(_artifact_output_dir "${kernel_name}" "${arch}" "${clang_version}" "${output_dir}")"
+  local rust_fragment="${bc_output}/llbic.rust.config"
   LAST_SOURCE_DIR="${kernel_src}"
   LAST_OUTPUT_DIR="${bc_output}"
   LAST_LOG_FILE="${bc_output}/llbic.log"
@@ -1570,6 +1631,7 @@ cmd_build() {
   LLBIC_CTX_CROSS_IS_DEFAULT=$((cross_set == 0 ? 1 : 0))
   LLBIC_CTX_DEFCONFIG_IS_DEFAULT=$((defconfig_set == 0 ? 1 : 0))
   LLBIC_CTX_LAYOUT_IS_DEFAULT=$((layout_set == 0 ? 1 : 0))
+  LLBIC_CTX_RUST_ENABLED="${rust_enabled}"
   if [[ ${#make_targets[@]} -gt 0 ]]; then
     LLBIC_CTX_SCOPE="targets"
   else
@@ -1643,6 +1705,20 @@ cmd_build() {
   fi
 
   [[ -d "${kernel_src}" ]] || die "Source not found after extraction: ${kernel_src}"
+
+  if [[ "${rust_enabled}" -eq 1 ]]; then
+    _write_rust_kconfig_fragment "${kernel_src}" "${rust_fragment}"
+    kconfig_fragments=("${rust_fragment}" "${kconfig_fragments[@]}")
+    _log_step "kconfig.rust_fragment path=${rust_fragment}"
+    LLBIC_CTX_KCONFIG_FRAGMENTS=()
+    for frag in "${kconfig_fragments[@]}"; do
+      if command -v realpath >/dev/null 2>&1; then
+        LLBIC_CTX_KCONFIG_FRAGMENTS+=("$(_normalize_path_for_json "$(realpath "${frag}")")")
+      else
+        LLBIC_CTX_KCONFIG_FRAGMENTS+=("$(_normalize_path_for_json "${frag}")")
+      fi
+    done
+  fi
 
   # Step 2: Compile
   LLBIC_CTX_PHASE="compile"
@@ -1836,6 +1912,10 @@ cmd_compile() {
         forward_args+=("$1")
         shift
         ;;
+      --rust)
+        forward_args+=("$1")
+        shift
+        ;;
       --json)
         JSON_OUTPUT=1
         want_json=1
@@ -1956,6 +2036,10 @@ _compile_lto() {
   clang_flags_override="$(_clang_flags_override "${kernel_name}" "${arch}" "${cross_compile}")"
   compat_cflags="$(_kernel_compile_compat_flags "${kernel_name}" "${arch}")"
   opaque_ptr_flags="$(_opaque_pointer_disable_flags "${llvm_major}")"
+
+  if [[ "${LLBIC_CTX_RUST_ENABLED:-0}" -eq 1 ]]; then
+    _require_rustavailable "${kernel_src}" "${kbuild_dir}" "${arch}" "${cross_compile}" "${clang}" "${clang_flags_override}" "${make_llvm[@]}"
+  fi
 
   info "Strategy: CONFIG_LTO_CLANG_FULL (native LTO)"
 
@@ -2098,6 +2182,10 @@ _compile_irdumper() {
   mapfile -t make_verbose < <(_make_verbose_args)
   clang_flags_override="$(_clang_flags_override "${kernel_name}" "${arch}" "${cross_compile}")"
   compat_cflags="$(_kernel_compile_compat_flags "${kernel_name}" "${arch}")"
+
+  if [[ "${LLBIC_CTX_RUST_ENABLED:-0}" -eq 1 ]]; then
+    _require_rustavailable "${kernel_src}" "${kbuild_dir}" "${arch}" "${cross_compile}" "${clang}" "${clang_flags_override}" "${make_llvm[@]}"
+  fi
 
   info "Strategy: IRDumper pass plugin (fallback)"
 
@@ -2459,6 +2547,7 @@ ${BOLD}Usage:${NC}
   llbic build <version> [--clang VER] [--arch ARCH] [--cross PREFIX]
               [--defconfig TARGET] [--kconfig FILE ...] [--file PATH ...]
               [--output DIR] [--json] [--verbose] [--outtree|--intree]
+              [--rust]
 
 ${BOLD}Transforms:${NC}
   kernel version -> downloaded source -> extracted tree -> build artifacts
@@ -2473,6 +2562,7 @@ ${BOLD}Artifacts:${NC}
 ${BOLD}Scoped mode:${NC}
   Repeat --file with kernel source-relative .c, .S, .s, or .o paths to
   compile only those translation units after config + prepare.
+  --rust enables Rust support, Rust samples, and all sample Rust configs.
 
 EOF
       return 0
@@ -2511,6 +2601,7 @@ ${BOLD}Usage:${NC}
   llbic compile [KERNEL_NAME] [--clang VERSION] [--arch ARCH] [--cross PREFIX]
                 [--defconfig TARGET] [--kconfig FILE ...] [--file PATH ...]
                 [--output DIR] [--json] [--verbose] [--outtree|--intree]
+                [--rust]
 
 ${BOLD}Transforms:${NC}
   extracted linux-* source tree -> canonical llbic build output
@@ -2569,13 +2660,14 @@ ${BOLD}Commands:${NC}
   clean     remove generated build or source artifacts
 
 ${BOLD}Examples:${NC}
-  llbic build 6.12                    # canonical build command
-  llbic build 6.12 --file kernel/sched/core.c --json
-  llbic download 6.12 --json          # fetch source archive and print JSON
+  llbic build 6.18.16                 # canonical build command
+  llbic build 6.19.7 --rust --out-of-tree --json
+  llbic build 6.18.16 --file kernel/sched/core.c --json
+  llbic download 6.18.16 --json       # fetch source archive and print JSON
   llbic extract --json                # unpack local archives and print JSON
-  llbic compile linux-6.12 --json     # compile extracted source tree
-  llbic inspect out/linux-6.12-x86_64-clang18
-  llbic inspect out/linux-6.12-x86_64-clang18/llbic.json --json
+  llbic compile linux-6.18.16 --json  # compile extracted source tree
+  llbic inspect out/linux-6.18.16-x86_64-clang18
+  llbic inspect out/linux-6.18.16-x86_64-clang18/llbic.json --json
 
 ${BOLD}Canonical build options:${NC}
   --outtree, --out-of-tree            Build with O=<out dir> (recommended)
@@ -2585,6 +2677,7 @@ ${BOLD}Canonical build options:${NC}
   --defconfig TARGET                  Kbuild config target (default: defconfig)
   --kconfig, -K FILE                  Kconfig fragment to merge into .config
   --file, -f PATH                     Compile only selected translation units
+  --rust                              Enable Rust support and Rust sample configs (>= 6.19.7)
   --output, -o DIR                    Override the exact artifact directory
   --json                              Print structured result to stdout
   --verbose, -V                       Pass V=1 to kernel make
@@ -2602,8 +2695,8 @@ ${BOLD}Primary artifacts:${NC}
 
 ${BOLD}Docker:${NC}
   docker run --rm -v \$(pwd)/out:/out ghcr.io/cyruscyliu/llbic:latest \
-    build 6.12
-  # writes to ./out/linux-6.12-x86_64-clang18/ automatically when /out is mounted
+    build 6.18.16
+  # writes to ./out/linux-6.18.16-x86_64-clang18/ automatically when /out is mounted
 
 EOF
 }
