@@ -12,6 +12,21 @@ workflows that need reproducible kernel artifacts instead of ad hoc scripts. It
 pairs an explicit staged command model with a stable machine-readable manifest
 so builds are easy to automate, inspect, and reuse.
 
+## For Agents
+
+For agent workflows, start by asking `llbic` for its command surface and prefer
+machine-readable output whenever the result will be consumed programmatically.
+
+```text
+Use ./llbic --help first to discover the available commands and flags.
+When running a build or inspection step for automation, prefer --json so the
+result can be parsed reliably. Typical flow:
+
+./llbic --help
+./llbic build 6.18.16 --out-of-tree --json
+./llbic inspect out/linux-6.18.16/llbic.json --json
+```
+
 ## Quick start
 
 ```bash
