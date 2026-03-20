@@ -269,7 +269,7 @@ VERSION="0.1.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="${LLBIC_ROOT:-$(_host_script_dir)}"
 SOURCES_DIR="${LLBIC_SOURCES:-${ROOT_DIR}/sources}"
-BUILD_DIR="${LLBIC_OUTPUT:-${ROOT_DIR}/build}"
+BUILD_DIR="${LLBIC_OUTPUT:-${ROOT_DIR}/out}"
 CONF_FILE="${LLBIC_CONF:-${ROOT_DIR}/sources.conf}"
 NPROC="${NPROC:-$(nproc)}"
 : "${LLBIC_ACTIVE_BACKEND:=host}"
@@ -297,6 +297,7 @@ LLBIC_CTX_KBUILD_DIR=""
 LLBIC_CTX_JSON_FILE=""
 LLBIC_CTX_BC_LIST_FILE=""
 LLBIC_CTX_KERNEL_BUILD_LOG=""
+LLBIC_CTX_REQUESTED_CLANG=""
 LLBIC_CTX_CLANG=""
 LLBIC_CTX_LLVM_MAJOR=""
 LLBIC_CTX_STRATEGY=""
@@ -959,6 +960,57 @@ _default_output_dir() {
   fi
 }
 
+_resolve_cli_path() {
+  local path="$1"
+  [[ -n "${path}" ]] || return 0
+
+  if [[ "${path}" == /* ]]; then
+    echo "${path}"
+  else
+    echo "${ROOT_DIR%/}/${path}"
+  fi
+}
+
+_artifact_output_dir_name() {
+  local kernel_name="$1"
+  local arch="$2"
+  local clang_version="$3"
+  printf '%s-%s-clang%s' "${kernel_name}" "${arch}" "${clang_version}"
+}
+
+_artifact_output_dir() {
+  local kernel_name="$1"
+  local arch="$2"
+  local clang_version="$3"
+  local requested_output_dir="${4:-}"
+
+  if [[ -n "${requested_output_dir}" ]]; then
+    _resolve_cli_path "${requested_output_dir}"
+    return 0
+  fi
+
+  local output_root
+  output_root="$(_default_output_dir)"
+  printf '%s/%s\n' "${output_root%/}" "$(_artifact_output_dir_name "${kernel_name}" "${arch}" "${clang_version}")"
+}
+
+_extract_option_value() {
+  local long_name="$1"
+  local short_name="$2"
+  shift 2
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      "${long_name}"|"${short_name}")
+        [[ $# -ge 2 ]] || return 0
+        printf '%s\n' "$2"
+        return 0
+        ;;
+    esac
+    shift
+  done
+}
+
 _timestamp() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
@@ -1209,6 +1261,11 @@ _emit_result_json() {
     printf '"bitcode_list_file":"%s",' "$(_json_escape "${LLBIC_CTX_BC_LIST_FILE}")"
   else
     printf '"bitcode_list_file":null,'
+  fi
+  if [[ -n "${LLBIC_CTX_REQUESTED_CLANG:-}" ]]; then
+    printf '"requested_clang":"%s",' "$(_json_escape "${LLBIC_CTX_REQUESTED_CLANG}")"
+  else
+    printf '"requested_clang":null,'
   fi
   printf '"clang":"%s",' "$(_json_escape "${clang}")"
   printf '"llvm_major":"%s",' "$(_json_escape "${llvm_major}")"
@@ -1471,14 +1528,18 @@ cmd_build() {
     tarball="$(_tarball_path_for_url "${kernel_name}" "${url}")"
   fi
   local kernel_src="${SOURCES_DIR}/${kernel_name}"
-  local build_root="${output_dir:-$(_default_output_dir)}"
-  local bc_output="${build_root}/${kernel_name}"
+  local expected_clang_version=""
+  expected_clang_version="$(_default_clang_for_kernel "${kernel_ver}")"
+  [[ -n "${clang_version}" ]] || clang_version="${expected_clang_version}"
+
+  local bc_output=""
+  bc_output="$(_artifact_output_dir "${kernel_name}" "${arch}" "${clang_version}" "${output_dir}")"
   LAST_SOURCE_DIR="${kernel_src}"
   LAST_OUTPUT_DIR="${bc_output}"
   LAST_LOG_FILE="${bc_output}/llbic.log"
   LOG_FILE="${LAST_LOG_FILE}"
 
-  mkdir -p -- "${SOURCES_DIR}" "${build_root}"
+  mkdir -p -- "${SOURCES_DIR}"
   mkdir -p -- "${bc_output}"
   : > "${LOG_FILE}"
 
@@ -1493,6 +1554,7 @@ cmd_build() {
   LLBIC_CTX_JSON_FILE="${bc_output}/llbic.json"
   LLBIC_CTX_BC_LIST_FILE="$(_normalize_path_for_json "${bc_output}/bitcode_files.txt")"
   LLBIC_CTX_KERNEL_BUILD_LOG="$(_normalize_path_for_json "${bc_output}/kernel-build.log")"
+  LLBIC_CTX_REQUESTED_CLANG="${clang_version}"
   LLBIC_CTX_CLANG=""
   LLBIC_CTX_LLVM_MAJOR=""
   LLBIC_CTX_STRATEGY=""
@@ -1529,6 +1591,19 @@ cmd_build() {
   trap '_finalize_build_artifacts "$?"' EXIT
 
   _log_step "build.start kernel=${kernel_name} source_url=${url} output_dir=${bc_output}"
+
+  LLBIC_CTX_PHASE="preflight"
+  local clang
+  clang="$(_resolve_clang "${clang_version}")"
+  _require_clang_or_suggest_docker "${clang}" "${kernel_ver}" "${expected_clang_version}"
+
+  local llvm_major
+  llvm_major="$(${clang} --version | grep -oP 'clang version \K[0-9]+')"
+  [[ -z "${clang_version}" ]] && clang_version="${llvm_major}"
+  _warn_host_clang_mismatch "${kernel_ver}" "${llvm_major}" "${expected_clang_version}"
+  _log_step "compile.prepare clang=${clang} llvm_major=${llvm_major}"
+  LLBIC_CTX_CLANG="${clang}"
+  LLBIC_CTX_LLVM_MAJOR="${llvm_major}"
 
   # Step 1: Download
   LLBIC_CTX_PHASE="download"
@@ -1571,20 +1646,6 @@ cmd_build() {
 
   # Step 2: Compile
   LLBIC_CTX_PHASE="compile"
-  local expected_clang_version=""
-  expected_clang_version="$(_default_clang_for_kernel "${kernel_ver}")"
-  [[ -n "${clang_version}" ]] || clang_version="${expected_clang_version}"
-  local clang
-  clang="$(_resolve_clang "${clang_version}")"
-  _require_clang_or_suggest_docker "${clang}" "${kernel_ver}" "${expected_clang_version}"
-
-  local llvm_major
-  llvm_major="$(${clang} --version | grep -oP 'clang version \K[0-9]+')"
-  [[ -z "${clang_version}" ]] && clang_version="${llvm_major}"
-  _warn_host_clang_mismatch "${kernel_ver}" "${llvm_major}" "${expected_clang_version}"
-  _log_step "compile.prepare clang=${clang} llvm_major=${llvm_major}"
-  LLBIC_CTX_CLANG="${clang}"
-  LLBIC_CTX_LLVM_MAJOR="${llvm_major}"
 
   local kbuild_dir=""
   if [[ "${build_layout}" == "outtree" ]]; then
@@ -1757,50 +1818,42 @@ cmd_extract() {
 # ============================================================
 cmd_compile() {
   local target_kernel=""
-  local clang_version=""
   local -a compiled_kernels=()
   local -a compiled_outputs=()
-  local -a requested_files=()
-  local -a make_targets=()
+  local -a forward_args=()
+  local custom_output_dir=""
+  local want_json=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --clang|-c) clang_version="$2"; shift 2 ;;
-      --file|-f)
-        [[ $# -ge 2 ]] || \
-          die "--file requires a kernel source-relative path"
-        requested_files+=("$(_normalize_kernel_relative_file "$2")")
-        make_targets+=("$(_normalize_make_target_from_file "$2")")
+      --clang|-c|--arch|-a|--cross|--defconfig|--kconfig|-K|--file|-f|--output|-o)
+        [[ $# -ge 2 ]] || die "$1 requires a value"
+        [[ "$1" == "--output" || "$1" == "-o" ]] && custom_output_dir="$2"
+        forward_args+=("$1" "$2")
         shift 2
         ;;
-      --json)     JSON_OUTPUT=1; shift ;;
-      --help|-h)  cmd_help compile; exit 0 ;;
-      *)          target_kernel="$1"; shift ;;
+      --outtree|--out-of-tree|--intree|--verbose|-V)
+        forward_args+=("$1")
+        shift
+        ;;
+      --json)
+        JSON_OUTPUT=1
+        want_json=1
+        shift
+        ;;
+      --help|-h)
+        cmd_help compile
+        exit 0
+        ;;
+      *)
+        [[ -z "${target_kernel}" ]] || die "compile accepts at most one kernel name"
+        target_kernel="$1"
+        shift
+        ;;
     esac
   done
 
   [[ -z "${target_kernel}" ]] || target_kernel="$(_normalize_kernel_name "${target_kernel}")"
-  local expected_clang_version=""
-  expected_clang_version="$(_default_clang_for_kernel "${target_kernel#linux-}")"
-  [[ -n "${clang_version}" ]] || clang_version="${expected_clang_version}"
-
-  local clang
-  clang="$(_resolve_clang "${clang_version}")"
-  _require_clang_or_suggest_docker "${clang}" "${target_kernel#linux-}" "${expected_clang_version}"
-
-  local llvm_major
-  llvm_major="$(${clang} --version | grep -oP 'clang version \K[0-9]+')"
-  [[ -z "${clang_version}" ]] && clang_version="${llvm_major}"
-  _warn_host_clang_mismatch "${target_kernel#linux-}" "${llvm_major}" "${expected_clang_version}"
-  info "Using: ${clang} (LLVM ${llvm_major})"
-  if [[ ${#make_targets[@]} -gt 0 ]]; then
-    LLBIC_CTX_SCOPE="targets"
-  else
-    LLBIC_CTX_SCOPE="full"
-  fi
-  LLBIC_CTX_REQUESTED_FILES=("${requested_files[@]}")
-  LLBIC_CTX_MAKE_TARGETS=("${make_targets[@]}")
-
   [[ -d "${SOURCES_DIR}" ]] || die "No sources. Run: llbic download && llbic extract"
 
   local -a trees=()
@@ -1814,61 +1867,58 @@ cmd_compile() {
   done
 
   [[ ${#trees[@]} -gt 0 ]] || die "No matching kernel found${target_kernel:+ for '${target_kernel}'}"
+  if [[ -n "${custom_output_dir}" && ${#trees[@]} -ne 1 ]]; then
+    die "--output requires a single target kernel when using compile"
+  fi
+
   info "Compiling ${#trees[@]} kernel(s)..."
   echo "" >&2
 
   for kernel_src in "${trees[@]}"; do
     local kernel_name
     kernel_name="$(basename "${kernel_src}")"
-    local output_dir="${BUILD_DIR}/${kernel_name}"
-    local kver
+    local kver=""
+    local output_dir=""
     kver="$(make -C "${kernel_src}" -s kernelversion 2>/dev/null)" || kver="unknown"
 
     printf '%s=== %s (%s) ===%s\n' "${BOLD}" "${kernel_name}" "${kver}" "${NC}" >&2
 
-    if _version_ge "${kver}" "5.12"; then
-      _compile_lto \
-        "${kernel_src}" \
-        "${kernel_name}" \
-        "${output_dir}" \
-        "${clang}" \
-        "${llvm_major}" \
-        "" \
-        "x86_64" \
-        "" \
-        "defconfig"
+    local -a build_args=("${forward_args[@]}")
+    if [[ -n "${target_kernel}" ]]; then
+      build_args=("${target_kernel}" "${build_args[@]}")
     else
-      _compile_irdumper \
-        "${kernel_src}" \
-        "${kernel_name}" \
-        "${output_dir}" \
-        "${clang}" \
-        "${clang_version}" \
-        "${llvm_major}" \
-        "" \
-        "x86_64" \
-        "" \
-        "defconfig"
+      build_args=("${kernel_name}" "${build_args[@]}")
     fi
+
+    local previous_json="${JSON_OUTPUT}"
+    JSON_OUTPUT=0
+    cmd_build "${build_args[@]}"
+    JSON_OUTPUT="${previous_json}"
+
+    if [[ -n "${custom_output_dir}" ]]; then
+      output_dir="$(_resolve_cli_path "${custom_output_dir}")"
+    else
+      local compiled_arch="x86_64"
+      local compiled_clang
+      compiled_clang="$(_extract_option_value --clang -c "${forward_args[@]}")"
+      [[ -n "${compiled_clang}" ]] || compiled_clang="$(_default_clang_for_kernel "${kernel_name#linux-}")"
+      local requested_arch=""
+      requested_arch="$(_extract_option_value --arch -a "${forward_args[@]}")"
+      [[ -n "${requested_arch}" ]] && compiled_arch="${requested_arch}"
+      output_dir="$(_artifact_output_dir "${kernel_name}" "${compiled_arch}" "${compiled_clang}")"
+    fi
+
     compiled_kernels+=("${kernel_name}")
     compiled_outputs+=("${output_dir}")
     echo "" >&2
   done
 
-  info "Bitcode output in: ${BUILD_DIR}/"
-  if [[ "${JSON_OUTPUT}" -eq 1 ]]; then
+  info "Bitcode output in: $(_default_output_dir)/"
+  if [[ "${want_json}" -eq 1 ]]; then
     printf '{"command":"compile","status":"success","exit_code":0,'
-    printf '"summary":"compiled extracted kernel trees",'
-    printf '"details":{"build_dir":"%s","scope":"%s","clang":"%s","llvm_major":"%s",' \
-      "$(_json_escape "$(_normalize_path_for_json "${BUILD_DIR}")")" \
-      "$(_json_escape "${LLBIC_CTX_SCOPE:-full}")" \
-      "$(_json_escape "${clang}")" \
-      "$(_json_escape "${llvm_major}")"
-    printf '"requested_files":'
-    _json_array requested_files
-    printf ',"make_targets":'
-    _json_array make_targets
-    printf ','
+    printf '"summary":"compiled extracted kernel trees via the canonical build pipeline",'
+    printf '"details":{"build_root":"%s",' \
+      "$(_json_escape "$(_normalize_path_for_json "$(_default_output_dir)")")"
     printf '"compiled_kernels":'
     _json_array compiled_kernels
     printf ',"output_dirs":'
@@ -2168,6 +2218,9 @@ EOF
 # list — show available kernels and bitcode
 # ============================================================
 cmd_list() {
+  local output_root=""
+  output_root="$(_default_output_dir)"
+
   printf '%sKernel sources:%s\n' "${BOLD}" "${NC}"
   if [[ -d "${SOURCES_DIR}" ]]; then
     for d in "${SOURCES_DIR}"/linux-*/; do
@@ -2184,8 +2237,8 @@ cmd_list() {
 
   echo ""
   printf '%sBitcode output:%s\n' "${BOLD}" "${NC}"
-  if [[ -d "${BUILD_DIR}" ]]; then
-    for d in "${BUILD_DIR}"/*/; do
+  if [[ -d "${output_root}" ]]; then
+    for d in "${output_root}"/*/; do
       [[ -d "${d}" ]] || continue
       local name
       name="$(basename "${d}")"
@@ -2228,7 +2281,9 @@ cmd_clean() {
 
   case "${target}" in
     build)
-      [[ -d "${BUILD_DIR}" ]] && rm -rf -- "${BUILD_DIR}" && info "Removed ${BUILD_DIR}" || info "Nothing to clean."
+      local output_root=""
+      output_root="$(_default_output_dir)"
+      [[ -d "${output_root}" ]] && rm -rf -- "${output_root}" && info "Removed ${output_root}" || info "Nothing to clean."
       ;;
     sources)
       [[ -d "${SOURCES_DIR}" ]] && rm -rf -- "${SOURCES_DIR}" && info "Removed ${SOURCES_DIR}" || info "Nothing to clean."
@@ -2242,7 +2297,7 @@ cmd_clean() {
     printf '"summary":"cleaned requested llbic artifacts",'
     printf '"details":{"target":"%s","build_dir":"%s","sources_dir":"%s"}}' \
       "$(_json_escape "${target}")" \
-      "$(_json_escape "$(_normalize_path_for_json "${BUILD_DIR}")")" \
+      "$(_json_escape "$(_normalize_path_for_json "$(_default_output_dir)")")" \
       "$(_json_escape "$(_normalize_path_for_json "${SOURCES_DIR}")")"
     printf '\n'
   fi
@@ -2410,10 +2465,10 @@ ${BOLD}Transforms:${NC}
   -> llbic.json + bitcode_files.txt
 
 ${BOLD}Artifacts:${NC}
-  out/linux-<ver>/llbic.json
-  out/linux-<ver>/bitcode_files.txt
-  out/linux-<ver>/llbic.log
-  out/linux-<ver>/kernel-build.log
+  out/linux-<ver>-<arch>-clang<ver>/llbic.json
+  out/linux-<ver>-<arch>-clang<ver>/bitcode_files.txt
+  out/linux-<ver>-<arch>-clang<ver>/llbic.log
+  out/linux-<ver>-<arch>-clang<ver>/kernel-build.log
 
 ${BOLD}Scoped mode:${NC}
   Repeat --file with kernel source-relative .c, .S, .s, or .o paths to
@@ -2453,13 +2508,17 @@ EOF
 ${BOLD}llbic compile${NC} — compile an extracted kernel tree
 
 ${BOLD}Usage:${NC}
-  llbic compile [KERNEL_NAME] [--clang VERSION] [--file PATH ...] [--json]
+  llbic compile [KERNEL_NAME] [--clang VERSION] [--arch ARCH] [--cross PREFIX]
+                [--defconfig TARGET] [--kconfig FILE ...] [--file PATH ...]
+                [--output DIR] [--json] [--verbose] [--outtree|--intree]
 
 ${BOLD}Transforms:${NC}
-  extracted linux-* source tree -> build output under ${BUILD_DIR}
+  extracted linux-* source tree -> canonical llbic build output
 
 ${BOLD}Scoped mode:${NC}
   Repeat --file to compile only selected translation units.
+  compile reuses the same pipeline and artifact contract as build, but requires
+  the extracted source tree to already exist locally.
 
 EOF
       return 0
@@ -2497,7 +2556,7 @@ ${BOLD}Usage:${NC}
   llbic build <version> [options]
   llbic download [VERSION|URL ...] [--json]
   llbic extract [--json]
-  llbic compile [KERNEL_NAME] [--clang VERSION] [--file PATH ...] [--json]
+  llbic compile [KERNEL_NAME] [options]
   llbic inspect <output-dir|llbic.json> [--json]
   llbic clean [build|sources|all] [--json]
 
@@ -2515,8 +2574,8 @@ ${BOLD}Examples:${NC}
   llbic download 6.12 --json          # fetch source archive and print JSON
   llbic extract --json                # unpack local archives and print JSON
   llbic compile linux-6.12 --json     # compile extracted source tree
-  llbic inspect out/linux-6.12        # inspect an existing build output
-  llbic inspect out/linux-6.12/llbic.json --json
+  llbic inspect out/linux-6.12-x86_64-clang18
+  llbic inspect out/linux-6.12-x86_64-clang18/llbic.json --json
 
 ${BOLD}Canonical build options:${NC}
   --outtree, --out-of-tree            Build with O=<out dir> (recommended)
@@ -2526,24 +2585,25 @@ ${BOLD}Canonical build options:${NC}
   --defconfig TARGET                  Kbuild config target (default: defconfig)
   --kconfig, -K FILE                  Kconfig fragment to merge into .config
   --file, -f PATH                     Compile only selected translation units
+  --output, -o DIR                    Override the exact artifact directory
   --json                              Print structured result to stdout
   --verbose, -V                       Pass V=1 to kernel make
 
 ${BOLD}Structured contract:${NC}
-  build writes: out/linux-<ver>/llbic.json
+  build writes: out/linux-<ver>-<arch>-clang<ver>/llbic.json
   staged commands support: --json on stdout
   inspect supports: output-dir or llbic.json target, with --json output
 
 ${BOLD}Primary artifacts:${NC}
-  out/linux-<ver>/llbic.json          Machine-readable build summary
-  out/linux-<ver>/bitcode_files.txt   Bitcode file list
-  out/linux-<ver>/llbic.log           End-to-end run log
-  out/linux-<ver>/kernel-build.log    Kernel build output
+  out/linux-<ver>-<arch>-clang<ver>/llbic.json          Machine-readable build summary
+  out/linux-<ver>-<arch>-clang<ver>/bitcode_files.txt   Bitcode file list
+  out/linux-<ver>-<arch>-clang<ver>/llbic.log           End-to-end run log
+  out/linux-<ver>-<arch>-clang<ver>/kernel-build.log    Kernel build output
 
 ${BOLD}Docker:${NC}
   docker run --rm -v \$(pwd)/out:/out ghcr.io/cyruscyliu/llbic:latest \
     build 6.12
-  # writes to ./out/linux-6.12/ automatically when /out is mounted
+  # writes to ./out/linux-6.12-x86_64-clang18/ automatically when /out is mounted
 
 EOF
 }

@@ -5,7 +5,7 @@ command.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Kernel Support](https://img.shields.io/badge/kernels-2.6%20to%207.x-blue.svg)](#usage)
-[![Status Board](https://img.shields.io/badge/status%20board-matrix-informational.svg)](./status/README.md)
+[![Status Board](https://img.shields.io/badge/status%20board-matrix-informational.svg)](#status)
 
 `llbic` is a Linux kernel build CLI for researchers, tool builders, and agent
 workflows that need reproducible kernel artifacts instead of ad hoc scripts. It
@@ -25,7 +25,7 @@ result can be parsed reliably. Typical flow:
 
 ./llbic --help
 ./llbic build 6.18.16 --out-of-tree --json
-./llbic inspect out/linux-6.18.16/llbic.json --json
+./llbic inspect out/linux-6.18.16-x86_64-clang18/llbic.json --json
 ```
 
 ## Quick start
@@ -39,7 +39,7 @@ That single command:
 - Downloads the requested kernel tarball from `kernel.org`
 - Extracts the source into `sources/linux-6.18.16`
 - Compiles the kernel with the selected backend and toolchain
-- Writes logs, a machine-readable manifest, and the bitcode list under `out/linux-6.18.16/`
+- Writes logs, a machine-readable manifest, and the bitcode list under `out/linux-6.18.16-x86_64-clang18/`
 - Prints the same build summary to stdout because `--json` was requested
 
 You run `./llbic` from the repository root. The CLI creates and manages
@@ -49,7 +49,7 @@ directories by hand.
 Expected output layout:
 
 ```text
-out/linux-6.18.16/
+out/linux-6.18.16-x86_64-clang18/
   llbic.log
   kernel-build.log
   llbic.json
@@ -57,13 +57,13 @@ out/linux-6.18.16/
 ```
 
 ```bash
-./llbic inspect out/linux-6.18.16/llbic.json --json
+./llbic inspect out/linux-6.18.16-x86_64-clang18/llbic.json --json
 ```
 
 Use `inspect` to read back the manifest from a completed build without
 rerunning any build steps. This is useful in scripts and agent workflows when
 you want to verify the recorded kernel version, architecture, artifact paths,
-and bitcode summary from `out/linux-6.18.16/llbic.json`. Stable path fields are
+and bitcode summary from `out/linux-6.18.16-x86_64-clang18/llbic.json`. Stable path fields are
 workspace-relative, even when `./llbic` runs inside Docker. Use the `runtime`
 and `paths` blocks when you need the local container or host resolution.
 
@@ -79,10 +79,10 @@ Example response shape (abridged):
   "kernel_name": "linux-6.18.16",
   "source_url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.16.tar.xz",
   "source_dir": "sources/linux-6.18.16",
-  "output_dir": "out/linux-6.18.16",
-  "log_file": "out/linux-6.18.16/llbic.log",
+  "output_dir": "out/linux-6.18.16-x86_64-clang18",
+  "log_file": "out/linux-6.18.16-x86_64-clang18/llbic.log",
   "strategy": "lto",
-  "kernel_build_log": "out/linux-6.18.16/kernel-build.log",
+  "kernel_build_log": "out/linux-6.18.16-x86_64-clang18/kernel-build.log",
   "arch": "x86_64",
   "arch_is_default": 1,
   "cross_compile": null,
@@ -96,11 +96,12 @@ Example response shape (abridged):
   "make_targets": [],
   "kconfig_fragments": [],
   "kconfig_fragments_count": 0,
-  "kbuild_dir": "out/linux-6.18.16/kbuild-x86_64-clang18",
-  "config_path": "out/linux-6.18.16/kbuild-x86_64-clang18/.config",
+  "requested_clang": "18",
+  "kbuild_dir": "out/linux-6.18.16-x86_64-clang18/kbuild-x86_64-clang18",
+  "config_path": "out/linux-6.18.16-x86_64-clang18/kbuild-x86_64-clang18/.config",
   "config_sha256": "<sha256>",
-  "bitcode_root": "out/linux-6.18.16/kbuild-x86_64-clang18",
-  "bitcode_list_file": "out/linux-6.18.16/bitcode_files.txt",
+  "bitcode_root": "out/linux-6.18.16-x86_64-clang18/kbuild-x86_64-clang18",
+  "bitcode_list_file": "out/linux-6.18.16-x86_64-clang18/bitcode_files.txt",
   "clang": "clang-18",
   "llvm_major": "18",
   "runtime": {
@@ -117,7 +118,7 @@ Example response shape (abridged):
     }
   },
   "bitcode_files": [
-    "out/linux-6.18.16/kbuild-x86_64-clang18/kernel/sched/core.bc"
+    "out/linux-6.18.16-x86_64-clang18/kbuild-x86_64-clang18/kernel/sched/core.bc"
   ],
   "bitcode_files_rel": [
     "kernel/sched/core.bc"
@@ -129,8 +130,8 @@ Example response shape (abridged):
     "arch/x86/boot/bzImage"
   ],
   "kernel_images_abs": [
-    "out/linux-6.18.16/kbuild-x86_64-clang18/vmlinux",
-    "out/linux-6.18.16/kbuild-x86_64-clang18/arch/x86/boot/bzImage"
+    "out/linux-6.18.16-x86_64-clang18/kbuild-x86_64-clang18/vmlinux",
+    "out/linux-6.18.16-x86_64-clang18/kbuild-x86_64-clang18/arch/x86/boot/bzImage"
   ]
 }
 ```
@@ -175,7 +176,9 @@ Use `extract` when archives already exist locally and you want unpacked source t
 ```
 
 Use `compile` when the extracted `linux-*` tree already exists and you do not
-want to re-download or re-extract:
+want to re-download or re-extract. `compile` reuses the same build pipeline and
+artifact contract as `build`; it just requires the source tree to already be
+present:
 
 ```bash
 ./llbic compile linux-6.18.16 --json
@@ -184,7 +187,7 @@ want to re-download or re-extract:
 Use `inspect` to summarize an existing build without rerunning it:
 
 ```bash
-./llbic inspect ./out/linux-6.18.16/llbic.json --json
+./llbic inspect ./out/linux-6.18.16-x86_64-clang18/llbic.json --json
 ```
 
 Use `clean` to remove generated artifacts:
@@ -196,7 +199,7 @@ Use `clean` to remove generated artifacts:
 ```
 
 Flags let you shape the build itself: target architecture, toolchain version,
-config source, build layout, output location, and whether the result should be
+config source, build layout, output identity, and whether the result should be
 human-readable or machine-readable.
 
 Flags:
@@ -207,7 +210,7 @@ Flags:
 - `--defconfig`: kbuild config target (default: `defconfig`)
 - `--kconfig, -K`: merge one or more Kconfig fragments into the generated `.config` (repeatable)
 - `--file, -f`: compile only selected source-relative translation units
-- `--output, -o`: override the default `out/linux-<version>/` directory
+- `--output, -o`: write the build to an explicit output directory; otherwise `llbic` uses `out/linux-<version>-<arch>-clang<version>/`
 - `--json`: print a structured status or manifest to stdout
 - `--verbose, -V`: pass `V=1` to the kernel build
 - `--outtree`, `--out-of-tree`: use `make O=<dir>` for an out-of-tree build
@@ -230,7 +233,7 @@ emits structured output to stdout. Staged commands such as `download`,
 `extract`, `compile`, `inspect`, and `clean` use `--json` for their stdout
 response.
 
-Artifacts are written under `out/linux-<version>/` by default (override with
+Artifacts are written under `out/linux-<version>-<arch>-clang<version>/` by default (override with
 `--output`):
 
 - `llbic.log`: end-to-end build log
@@ -264,6 +267,7 @@ The `build` manifest includes these top-level fields:
 - `make_targets`
 - `kconfig_fragments`
 - `kconfig_fragments_count`
+- `requested_clang`
 - `kbuild_dir`
 - `bitcode_root`
 - `kernel_build_log`
@@ -286,7 +290,7 @@ artifact identities.
 Note: `kernel/time/timeconst.bc` in the Linux source tree is an input for the `bc`
 calculator (used to generate `include/generated/timeconst.h`), not LLVM bitcode.
 
-## Community
+## Contribute
 
 Contributions are welcome through issues and pull requests.
 
@@ -295,7 +299,7 @@ the practical regression contract is to run the relevant build path, collect
 the resulting artifacts, and update the status board when support coverage
 changes.
 
-A plan is to add `out/linux-<version>/llbic.status.jsonl` as an append-only
+A plan is to add `out/linux-<version>-<arch>-clang<version>/llbic.status.jsonl` as an append-only
 per-build progress stream. If implemented, it would complement `llbic.json`
 rather than replace it: `llbic.status.jsonl` for progressive phase updates,
 `llbic.json` for the final manifest, and `status/status.json` for the
@@ -306,8 +310,8 @@ Quick local verification for a typical change:
 ```bash
 ./llbic --help
 ./llbic build 6.18.16 --out-of-tree --json
-./llbic inspect out/linux-6.18.16/llbic.json --json
-scripts/run_status_board.py --matrix status/matrix.json
+./llbic inspect out/linux-6.18.16-x86_64-clang18/llbic.json --json
+python3 scripts/collect_status.py
 ```
 
 This generates:
@@ -315,19 +319,24 @@ This generates:
 - `status/status.json` (machine-readable)
 - `status/STATUS.md` (human-readable)
 
+The collector reads completed `out/**/llbic.json` manifests and derives a
+simplified support view with `kernel`, `arch`, `result`, `bitcode_emitted`, and
+`vmlinux_present`. It also preserves the requested toolchain dimension by using
+`requested_clang` from `llbic.json` when available, so the same kernel and
+architecture built under different Clang versions are tracked as distinct
+support rows. If an existing `status/status.json` is already present, the
+collector compares against it and warns when a previously recorded good result
+regresses or when a current row is broken and should be fixed. When no warnings
+are present, it also writes badge endpoint JSON files under `status/badges/`.
+Use `--force-badges` if you intentionally want to refresh those badge files
+despite warnings.
+
 The status board is monotonic by default: a change should not rewrite an
 existing passing entry into a failing one unless the pull request is explicitly
 documenting a regression or changing the support contract. In practice, that
 means a CI check can compare the generated `status/status.json` against the
 version in the branch and reject the change if previously recorded entries
 regress unexpectedly.
-
-The status matrix defaults to `clang: auto`. In the current implementation,
-that resolves to `llbic`'s default Clang for the target kernel era: `18` for
-6.x and newer, `12` for 4.x and 5.x, and `7` for 2.6.x and 3.x. In practice,
-when you run through the Docker images below, that means the status board uses
-the highest supported Clang version in the selected image unless the matrix
-entry pins `clang` explicitly.
 
 The status board follows `llbic`'s active backend selection. Use the prepared
 host toolchain when available, or set `LLBIC_BACKEND=docker` when you want the
@@ -338,10 +347,6 @@ containerized path and the image-defined toolchain selection.
 | `ghcr.io/cyruscyliu/llbic:latest` | 6.x, 7.x | 14, 15, 16, 18 |
 | `ghcr.io/cyruscyliu/llbic:mid` | 4.x, 5.x | 8, 9, 10, 11, 12 |
 | `ghcr.io/cyruscyliu/llbic:legacy` | 2.6, 3.x | 6.0, 7, 8 |
-
-## Community
-
-Contributions are welcome through issues and pull requests.
 
 If a change affects CLI behavior, backend selection, manifests, artifacts,
 status workflow, or agent guidance, update `README.md` and `SKILL.md` in the

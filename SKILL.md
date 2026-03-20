@@ -13,7 +13,7 @@ machine-readable output contract. The main workflow is:
 ```
 
 That command downloads the kernel source if needed, extracts it, builds it, and
-writes the resulting artifacts under `out/linux-<version>/`.
+writes the resulting artifacts under `out/linux-<version>-<arch>-clang<version>/`.
 
 ## First Steps
 
@@ -28,7 +28,7 @@ Typical flow:
 ```bash
 ./llbic --help
 ./llbic build 6.18.16 --out-of-tree --json
-./llbic inspect out/linux-6.18.16/llbic.json --json
+./llbic inspect out/linux-6.18.16-x86_64-clang18/llbic.json --json
 ```
 
 ## Backend Selection
@@ -97,13 +97,13 @@ Compile an already extracted tree:
 Inspect a prior result:
 
 ```bash
-./llbic inspect out/linux-6.18.16/llbic.json --json
+./llbic inspect out/linux-6.18.16-x86_64-clang18/llbic.json --json
 ```
 
-Regenerate the support status board:
+Collect the support status board from completed build manifests:
 
 ```bash
-scripts/run_status_board.py --matrix status/matrix.json
+python3 scripts/collect_status.py
 ```
 
 ## Artifact Contract
@@ -111,7 +111,7 @@ scripts/run_status_board.py --matrix status/matrix.json
 The main output directory is:
 
 ```text
-out/linux-<version>/
+out/linux-<version>-<arch>-clang<version>/
 ```
 
 The key files are:
@@ -123,7 +123,10 @@ The key files are:
 
 Treat portable scalar paths in `llbic.json` such as `source_dir`, `output_dir`,
 `bitcode_root`, and `bitcode_list_file` as the stable artifact identities.
-`runtime` and `paths` are environment-dependent resolution helpers.
+`runtime` and `paths` are environment-dependent resolution helpers. The build
+manifest also records `requested_clang`, which is important for distinguishing
+support rows when the same kernel and arch are tested under different requested
+toolchains, including failed host runs where the requested Clang is missing.
 
 ## Status Workflow
 
@@ -138,10 +141,18 @@ The status board files are:
 
 - `status/status.json`
 - `status/STATUS.md`
+- `status/badges/overall.json`
+- `status/badges/bitcode.json`
+- `status/badges/vmlinux.json`
 
 The board should be monotonic by default: existing passing entries should not
 silently regress to failing entries unless the pull request explicitly changes
-the support contract or documents a regression.
+the support contract or documents a regression. The collector compares against
+the existing `status/status.json`, warns when previously good rows regress, and
+only refreshes the badge JSON files when there are no warnings. Use
+`--force-badges` only when you intentionally want to regenerate badge files
+despite those warnings. For row identity, treat support targets as distinct by
+`arch + requested_clang + kernel`.
 
 ## Documentation Priorities
 
@@ -149,7 +160,7 @@ When explaining or updating behavior, prefer these sources in order:
 
 1. `./llbic --help`
 2. `README.md`
-3. `status/matrix.json` and `scripts/run_status_board.py`
+3. `status/status.json`, `status/STATUS.md`, `status/badges/`, and `scripts/collect_status.py`
 4. the implementation in `llbic`
 
 If command behavior changes, update the documentation in the same change.
