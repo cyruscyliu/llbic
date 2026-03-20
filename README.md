@@ -339,6 +339,14 @@ containerized path and the image-defined toolchain selection.
 | `ghcr.io/cyruscyliu/llbic:mid` | 4.x, 5.x | 8, 9, 10, 11, 12 |
 | `ghcr.io/cyruscyliu/llbic:legacy` | 2.6, 3.x | 6.0, 7, 8 |
 
+## Community
+
+Contributions are welcome through issues and pull requests.
+
+If a change affects CLI behavior, backend selection, manifests, artifacts,
+status workflow, or agent guidance, update `README.md` and `SKILL.md` in the
+same change.
+
 ## License
 
 See [LICENSE](LICENSE).
