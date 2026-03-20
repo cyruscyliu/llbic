@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 
-# This repository is intended to be run inside the provided Docker images.
-# When invoked on a host with Docker available, re-exec ourselves in a container.
+# This repository can run on a prepared host toolchain or inside the provided
+# Docker images. By default, prefer the host path and use Docker only when the
+# caller requests it or when the host is not being used as the execution path.
 #
-# Bypass with: LLBIC_NO_DOCKER=1 ./llbic ...
+# Bypass wrapper re-exec entirely with: LLBIC_NO_DOCKER=1 ./llbic ...
 _docker_kernel_version_from_args() {
   local args=("$@")
   local idx=0
@@ -175,6 +176,8 @@ _exec_via_runtime_backend() {
       --env
       LLBIC_NO_DOCKER=1
       --env
+      LLBIC_ACTIVE_BACKEND=docker
+      --env
       LLBIC_SOURCES=/work/sources
       --env
       LLBIC_CONF=/work/sources.conf
@@ -195,6 +198,8 @@ _exec_via_runtime_backend() {
     "${host_root}"
     --env
     LLBIC_NO_DOCKER=1
+    --env
+    LLBIC_ACTIVE_BACKEND=host
     --env
     LLBIC_ROOT="${host_root}"
     --env
@@ -220,14 +225,14 @@ if [[ -z "${LLBIC_NO_DOCKER:-}" ]] && ! _should_handle_locally "$@"; then
   fi
 
   if [[ "${in_container}" -eq 0 ]]; then
-    backend="${LLBIC_BACKEND:-auto}"
-    if [[ "${backend}" == "host" ]]; then
+    backend="${LLBIC_BACKEND:-host}"
+    if [[ "${backend}" == "host" || "${backend}" == "auto" ]]; then
       if _runtime_exec_available; then
         _exec_via_runtime_backend host "$@"
       fi
     elif _runtime_exec_available; then
       _exec_via_runtime_backend "${backend}" "$@"
-    elif command -v docker >/dev/null 2>&1; then
+    elif [[ "${backend}" != "host" && "${backend}" != "auto" ]] && command -v docker >/dev/null 2>&1; then
       image="$(_runtime_docker_image_for_args "$@")"
       dockerfile="$(_runtime_dockerfile_for_image "${image}")"
       host_root="$(_host_script_dir)"
@@ -247,6 +252,7 @@ if [[ -z "${LLBIC_NO_DOCKER:-}" ]] && ! _should_handle_locally "$@"; then
         --entrypoint /work/llbic \
         -e HOME=/tmp \
         -e LLBIC_NO_DOCKER=1 \
+        -e LLBIC_ACTIVE_BACKEND=docker \
         -e LLBIC_SOURCES=/work/sources \
         -e LLBIC_CONF=/work/sources.conf \
         -v "${host_root}:/work" \
@@ -266,6 +272,7 @@ SOURCES_DIR="${LLBIC_SOURCES:-${ROOT_DIR}/sources}"
 BUILD_DIR="${LLBIC_OUTPUT:-${ROOT_DIR}/build}"
 CONF_FILE="${LLBIC_CONF:-${ROOT_DIR}/sources.conf}"
 NPROC="${NPROC:-$(nproc)}"
+: "${LLBIC_ACTIVE_BACKEND:=host}"
 JSON_OUTPUT=0
 VERBOSE=0
 LAST_SOURCE_URL=""
@@ -380,7 +387,9 @@ _normalize_path_for_json() {
 }
 
 _runtime_execution_mode() {
-  if [[ -f "/.dockerenv" ]]; then
+  if [[ -n "${LLBIC_ACTIVE_BACKEND:-}" ]]; then
+    echo "${LLBIC_ACTIVE_BACKEND}"
+  elif [[ -f "/.dockerenv" ]]; then
     echo "docker"
   else
     echo "host"
@@ -651,6 +660,37 @@ _default_clang_for_kernel() {
   elif (( major == 2 && minor == 6 )); then
     printf '%s' "7"
   fi
+}
+
+_warn_host_clang_mismatch() {
+  local kernel_ver="${1:-}"
+  local llvm_major="${2:-}"
+  local expected_clang="${3:-}"
+
+  [[ "$(_runtime_execution_mode)" == "host" ]] || return 0
+  [[ -n "${kernel_ver}" && -n "${llvm_major}" && -n "${expected_clang}" ]] || return 0
+
+  if [[ "${llvm_major}" != "${expected_clang}" ]]; then
+    warn "Host toolchain uses LLVM ${llvm_major} for kernel ${kernel_ver}; llbic defaults to Clang ${expected_clang} for this kernel era."
+    warn "If this mismatch is not intentional, use LLBIC_BACKEND=docker to build with the matching container toolchain."
+    _log_step "compile.warn host_clang_mismatch kernel=${kernel_ver} expected=${expected_clang} actual=${llvm_major}"
+  fi
+}
+
+_require_clang_or_suggest_docker() {
+  local clang_bin="${1:-}"
+  local kernel_ver="${2:-}"
+  local expected_clang="${3:-}"
+
+  if command -v "${clang_bin}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [[ "$(_runtime_execution_mode)" == "host" && -n "${expected_clang}" ]]; then
+    die "${clang_bin} not found on host for kernel ${kernel_ver}. Use LLBIC_BACKEND=docker to build with the matching container toolchain (expected Clang ${expected_clang})."
+  fi
+
+  die "${clang_bin} not found"
 }
 
 _apply_kernel_compat_fixes() {
@@ -1531,14 +1571,17 @@ cmd_build() {
 
   # Step 2: Compile
   LLBIC_CTX_PHASE="compile"
-  [[ -n "${clang_version}" ]] || clang_version="$(_default_clang_for_kernel "${kernel_ver}")"
+  local expected_clang_version=""
+  expected_clang_version="$(_default_clang_for_kernel "${kernel_ver}")"
+  [[ -n "${clang_version}" ]] || clang_version="${expected_clang_version}"
   local clang
   clang="$(_resolve_clang "${clang_version}")"
-  command -v "${clang}" >/dev/null 2>&1 || die "${clang} not found"
+  _require_clang_or_suggest_docker "${clang}" "${kernel_ver}" "${expected_clang_version}"
 
   local llvm_major
   llvm_major="$(${clang} --version | grep -oP 'clang version \K[0-9]+')"
   [[ -z "${clang_version}" ]] && clang_version="${llvm_major}"
+  _warn_host_clang_mismatch "${kernel_ver}" "${llvm_major}" "${expected_clang_version}"
   _log_step "compile.prepare clang=${clang} llvm_major=${llvm_major}"
   LLBIC_CTX_CLANG="${clang}"
   LLBIC_CTX_LLVM_MAJOR="${llvm_major}"
@@ -1737,15 +1780,18 @@ cmd_compile() {
   done
 
   [[ -z "${target_kernel}" ]] || target_kernel="$(_normalize_kernel_name "${target_kernel}")"
-  [[ -n "${clang_version}" ]] || clang_version="$(_default_clang_for_kernel "${target_kernel#linux-}")"
+  local expected_clang_version=""
+  expected_clang_version="$(_default_clang_for_kernel "${target_kernel#linux-}")"
+  [[ -n "${clang_version}" ]] || clang_version="${expected_clang_version}"
 
   local clang
   clang="$(_resolve_clang "${clang_version}")"
-  command -v "${clang}" >/dev/null 2>&1 || die "${clang} not found"
+  _require_clang_or_suggest_docker "${clang}" "${target_kernel#linux-}" "${expected_clang_version}"
 
   local llvm_major
   llvm_major="$(${clang} --version | grep -oP 'clang version \K[0-9]+')"
   [[ -z "${clang_version}" ]] && clang_version="${llvm_major}"
+  _warn_host_clang_mismatch "${target_kernel#linux-}" "${llvm_major}" "${expected_clang_version}"
   info "Using: ${clang} (LLVM ${llvm_major})"
   if [[ ${#make_targets[@]} -gt 0 ]]; then
     LLBIC_CTX_SCOPE="targets"

@@ -88,10 +88,10 @@ Example response shape (abridged):
   "clang": "clang-18",
   "llvm_major": "18",
   "runtime": {
-    "execution": "docker",
-    "workspace_root": "/work",
-    "sources_root": "/work/sources",
-    "output_root": "/out"
+    "execution": "host",
+    "workspace_root": "<workspace-root>",
+    "sources_root": "<sources-root>",
+    "output_root": "<output-root>"
   },
   "paths": {
     "source_dir": {
@@ -204,9 +204,10 @@ Example: build ARM64 `defconfig` plus your own config fragment:
 ```
 
 Environment variables control how `llbic` runs the build backend. They are
-runtime overrides, not build-definition flags, so most users can ignore them
-unless they need to change execution behavior. Use `LLBIC_REBUILD=1` to force
-rebuilding the image.
+runtime overrides, not build-definition flags. `llbic` now uses the prepared
+host toolchain by default. Set `LLBIC_BACKEND=docker` when you want the
+containerized toolchain path, and use `LLBIC_REBUILD=1` to force rebuilding the
+selected Docker image.
 
 `build` always writes `llbic.json`, even on failure. `--json` additionally
 emits structured output to stdout. Staged commands such as `download`,
