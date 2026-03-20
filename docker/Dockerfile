@@ -1,9 +1,10 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV LLBIC_RUST_BIN=/usr/local/llbic-rust/bin
 ENV CARGO_HOME=/usr/local/cargo
 ENV RUSTUP_HOME=/usr/local/rustup
-ENV PATH=/usr/local/cargo/bin:${PATH}
+ENV PATH=${LLBIC_RUST_BIN}:/usr/local/cargo/bin:${PATH}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       # Basic build tools
@@ -93,6 +94,21 @@ COPY scripts/install_rust_env.sh /tmp/install_rust_env.sh
 RUN chmod +x /tmp/install_rust_env.sh \
       && /tmp/install_rust_env.sh --system \
       && rm -f /tmp/install_rust_env.sh
+
+COPY scripts/rustc-llbic-wrapper.sh /usr/local/bin/rustc-llbic-wrapper
+COPY scripts/bindgen-llbic-wrapper.sh /usr/local/bin/bindgen-llbic-wrapper
+RUN chmod +x /usr/local/bin/rustc-llbic-wrapper \
+      /usr/local/bin/bindgen-llbic-wrapper \
+      && mkdir -p "${LLBIC_RUST_BIN}" \
+      && printf '%s\n' '#!/usr/bin/env bash' \
+                     'exec /usr/local/bin/rustc-llbic-wrapper "$@"' \
+         > "${LLBIC_RUST_BIN}/rustc" \
+      && printf '%s\n' '#!/usr/bin/env bash' \
+                     'exec /usr/local/bin/bindgen-llbic-wrapper "$@"' \
+         > "${LLBIC_RUST_BIN}/bindgen" \
+      && chmod +x "${LLBIC_RUST_BIN}/rustc" "${LLBIC_RUST_BIN}/bindgen" \
+      && LLBIC_RUSTC_REAL="$(rustup which rustc)" /usr/local/bin/rustc-llbic-wrapper --version \
+      && LLBIC_BINDGEN_REAL="/usr/local/cargo/bin/bindgen" CC=clang /usr/local/bin/bindgen-llbic-wrapper --version
 
 # Install llbic CLI
 COPY llbic /usr/local/bin/llbic
