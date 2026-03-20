@@ -1,3 +1,8 @@
+---
+name: tool-llbic
+description: Use this skill when working directly with the llbic tool repository to build Linux kernels reproducibly, collect LLVM bitcode artifacts, inspect llbic manifests, or choose between host and Docker backends.
+---
+
 # llbic Agent Skill
 
 Use this repository when you need to build Linux kernels reproducibly and
