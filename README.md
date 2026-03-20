@@ -17,9 +17,7 @@ so builds are easy to automate, inspect, and reuse.
 
 `llbic` now supports Rust-enabled Linux kernel builds for Rust-capable kernels
 (`>= 6.19.7`), including scoped Rust sample targets such as
-`samples/rust/rust_print.o`. In the Docker backend, the Rust toolchain,
-`bindgen`, and `libclang` are now kept aligned with the selected Clang version,
-and Rust builds emit sidecar LLVM bitcode files that `llbic` can collect.
+`samples/rust/rust_print.o`.
 
 ## For Agents
 
