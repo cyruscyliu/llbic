@@ -4,8 +4,9 @@ Compile Linux kernels to LLVM bitcode and kernel images with one stable
 command.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
-[![Kernel Support](https://img.shields.io/badge/kernels-2.6%20to%207.x-blue.svg)](#usage)
-[![Status Board](https://img.shields.io/badge/status%20board-matrix-informational.svg)](#status)
+[![Status Board](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/cyruscyliu/llbic/master/status/badges/overall.json)](#status)
+[![Bitcode](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/cyruscyliu/llbic/master/status/badges/bitcode.json)](#status)
+[![vmlinux](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/cyruscyliu/llbic/master/status/badges/vmlinux.json)](#status)
 
 `llbic` is a Linux kernel build CLI for researchers, tool builders, and agent
 workflows that need reproducible kernel artifacts instead of ad hoc scripts. It
@@ -290,53 +291,45 @@ artifact identities.
 Note: `kernel/time/timeconst.bc` in the Linux source tree is an input for the `bc`
 calculator (used to generate `include/generated/timeconst.h`), not LLVM bitcode.
 
-## Contribute
+## Status
 
-Contributions are welcome through issues and pull requests.
+The README reflects build status through generated files under `status/`, not
+through hand-edited prose.
 
-`llbic` does not currently ship a standalone unit test suite. For contributors,
-the practical regression contract is to run the relevant build path, collect
-the resulting artifacts, and update the status board when support coverage
-changes.
+The flow is:
 
-A plan is to add `out/linux-<version>-<arch>-clang<version>/llbic.status.jsonl` as an append-only
-per-build progress stream. If implemented, it would complement `llbic.json`
-rather than replace it: `llbic.status.jsonl` for progressive phase updates,
-`llbic.json` for the final manifest, and `status/status.json` for the
-aggregated status board.
+1. `llbic` writes one `llbic.json` manifest per build under `out/`
+2. `python3 scripts/collect_status.py` reads the completed manifests
+3. the collector rewrites the committed status artifacts and badge payloads
+4. the README links to those generated outputs
 
-Quick local verification for a typical change:
+In practice, that means the README status can be refreshed automatically after
+new build results are collected. You do not edit the status summary by hand;
+you regenerate it from the manifests.
+
+The generated outputs are:
+
+- `status/status.json`: machine-readable support rows
+- `status/STATUS.md`: rendered support table
+- `status/badges/overall.json`: overall pass/fail badge payload
+- `status/badges/bitcode.json`: bitcode-emission badge payload
+- `status/badges/vmlinux.json`: `vmlinux` build badge payload
+
+Refresh the status artifacts with:
 
 ```bash
-./llbic --help
-./llbic build 6.18.16 --out-of-tree --json
-./llbic inspect out/linux-6.18.16-x86_64-clang18/llbic.json --json
 python3 scripts/collect_status.py
 ```
 
-This generates:
+Print the current badge summary locally with:
 
-- `status/status.json` (machine-readable)
-- `status/STATUS.md` (human-readable)
+```bash
+python3 scripts/collect_status.py --print-badges
+```
 
-The collector reads completed `out/**/llbic.json` manifests and derives a
-simplified support view with `kernel`, `arch`, `result`, `bitcode_emitted`, and
-`vmlinux_present`. It also preserves the requested toolchain dimension by using
-`requested_clang` from `llbic.json` when available, so the same kernel and
-architecture built under different Clang versions are tracked as distinct
-support rows. If an existing `status/status.json` is already present, the
-collector compares against it and warns when a previously recorded good result
-regresses or when a current row is broken and should be fixed. When no warnings
-are present, it also writes badge endpoint JSON files under `status/badges/`.
-Use `--force-badges` if you intentionally want to refresh those badge files
-despite warnings.
-
-The status board is monotonic by default: a change should not rewrite an
-existing passing entry into a failing one unless the pull request is explicitly
-documenting a regression or changing the support contract. In practice, that
-means a CI check can compare the generated `status/status.json` against the
-version in the branch and reject the change if previously recorded entries
-regress unexpectedly.
+The board is derived from completed `out/**/llbic.json` manifests and tracked
+by `arch + requested_clang + kernel`, so the same kernel and architecture built
+under different Clang versions remain distinguishable.
 
 The status board follows `llbic`'s active backend selection. Use the prepared
 host toolchain when available, or set `LLBIC_BACKEND=docker` when you want the
@@ -347,6 +340,10 @@ containerized path and the image-defined toolchain selection.
 | `ghcr.io/cyruscyliu/llbic:latest` | 6.x, 7.x | 14, 15, 16, 18 |
 | `ghcr.io/cyruscyliu/llbic:mid` | 4.x, 5.x | 8, 9, 10, 11, 12 |
 | `ghcr.io/cyruscyliu/llbic:legacy` | 2.6, 3.x | 6.0, 7, 8 |
+
+## Contribute
+
+Contributions are welcome through issues and pull requests.
 
 If a change affects CLI behavior, backend selection, manifests, artifacts,
 status workflow, or agent guidance, update `README.md` and `SKILL.md` in the
