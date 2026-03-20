@@ -1,6 +1,6 @@
 {
-  "color": "lightgrey",
+  "color": "yellow",
   "label": "vmlinux",
-  "message": "0/0 built",
+  "message": "1/2 built",
   "schemaVersion": 1
 }

@@ -1,6 +1,6 @@
 {
-  "color": "lightgrey",
+  "color": "yellow",
   "label": "status board",
-  "message": "0/0 passing",
+  "message": "1/2 passing",
   "schemaVersion": 1
 }

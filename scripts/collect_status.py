@@ -43,6 +43,18 @@ def row_key(row: dict[str, Any]) -> str:
     )
 
 
+def result_is_success(result: Any) -> bool:
+    return str(result) in {"pass", "success"}
+
+
+def row_is_passing(row: dict[str, Any]) -> bool:
+    return (
+        result_is_success(row.get("result"))
+        and bool(row.get("bitcode_emitted"))
+        and bool(row.get("vmlinux_present"))
+    )
+
+
 def collect_rows(repo_root: Path, build_root: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
 
@@ -96,7 +108,7 @@ def compare_with_existing(
         key = row_key(row)
         existing = existing_by_key.get(key)
 
-        if row.get("result") != "pass":
+        if not row_is_passing(row):
             warnings.append(
                 f"{key} is currently broken: result={row.get('result')}, "
                 f"bitcode_emitted={row.get('bitcode_emitted')}, "
@@ -106,9 +118,9 @@ def compare_with_existing(
         if not existing:
             continue
 
-        if existing.get("result") == "pass" and row.get("result") != "pass":
+        if row_is_passing(existing) and not row_is_passing(row):
             warnings.append(
-                f"{key} regressed: result changed from pass to {row.get('result')}"
+                f"{key} regressed: passing support changed from true to false"
             )
 
         if bool(existing.get("bitcode_emitted")) and not bool(row.get("bitcode_emitted")):
@@ -173,7 +185,7 @@ def badge_color(passed: int, total: int) -> str:
 def write_badges(status: dict[str, Any], badges_dir: Path) -> list[Path]:
     rows = status["rows"]
     total = len(rows)
-    pass_count = sum(1 for row in rows if row.get("result") == "pass")
+    pass_count = sum(1 for row in rows if row_is_passing(row))
     bitcode_count = sum(1 for row in rows if row.get("bitcode_emitted"))
     vmlinux_count = sum(1 for row in rows if row.get("vmlinux_present"))
 
@@ -210,7 +222,7 @@ def write_badges(status: dict[str, Any], badges_dir: Path) -> list[Path]:
 def print_badge_summary(status: dict[str, Any]) -> None:
     rows = status["rows"]
     total = len(rows)
-    pass_count = sum(1 for row in rows if row.get("result") == "pass")
+    pass_count = sum(1 for row in rows if row_is_passing(row))
     bitcode_count = sum(1 for row in rows if row.get("bitcode_emitted"))
     vmlinux_count = sum(1 for row in rows if row.get("vmlinux_present"))
 

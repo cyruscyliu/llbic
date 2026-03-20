@@ -1,9 +1,34 @@
 {
   "meta": {
     "build_root": "out",
-    "generated_at": "2026-03-20T15:26:24+00:00",
-    "git_sha": "df6b10b148eed234ee23f4bf1b0630af0705aebb"
+    "generated_at": "2026-03-20T16:01:41+00:00",
+    "git_sha": "5aa788a273c0747c03e83dba70838f6d2a2dc913"
   },
-  "rows": [],
-  "warnings": []
+  "rows": [
+    {
+      "arch": "arm64",
+      "bitcode_emitted": true,
+      "clang": "15",
+      "kernel": "6.18.16",
+      "paths": {
+        "manifest": "out/linux-6.18.16-arm64-clang15/llbic.json"
+      },
+      "result": "success",
+      "vmlinux_present": true
+    },
+    {
+      "arch": "x86_64",
+      "bitcode_emitted": true,
+      "clang": "18",
+      "kernel": "6.18.16",
+      "paths": {
+        "manifest": "out/linux-6.18.16-x86_64-clang18/llbic.json"
+      },
+      "result": "success",
+      "vmlinux_present": false
+    }
+  ],
+  "warnings": [
+    "x86_64::18::6.18.16 is currently broken: result=success, bitcode_emitted=True, vmlinux_present=False"
+  ]
 }
