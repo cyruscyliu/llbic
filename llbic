@@ -803,25 +803,41 @@ _require_rustavailable() {
   local -a make_extra=()
   local -a rust_make_args=()
   local -a rust_make_env=()
+  local -a prereq_cmd=()
+  local -a prereq_logs=()
 
   [[ -n "${kbuild_dir}" ]] && make_extra+=(O="${kbuild_dir}")
   _build_rust_make_wrapper_config "${clang}" rust_make_args rust_make_env
   info "Checking Rust kernel prerequisites..."
-  env "${rust_make_env[@]}" make -C "${kernel_src}" \
-    "${make_extra[@]}" \
-    ARCH="${arch}" \
-    ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
-    CC="${clang}" \
-    ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} \
-    "${rust_make_args[@]}" \
-    "${make_llvm[@]}" \
-    rustavailable > /dev/null 2>&1 || \
+  prereq_logs=("${LOG_FILE}")
+  if [[ -n "${LLBIC_CTX_KERNEL_BUILD_LOG:-}" ]]; then
+    prereq_logs+=("$(_resolve_portable_path_locally "${LLBIC_CTX_KERNEL_BUILD_LOG}")")
+  fi
+  prereq_cmd=(
+    env "${rust_make_env[@]}" make -C "${kernel_src}"
+    "${make_extra[@]}"
+    ARCH="${arch}"
+    ${cross_compile:+CROSS_COMPILE="${cross_compile}"}
+    CC="${clang}"
+    ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"}
+    "${rust_make_args[@]}"
+    "${make_llvm[@]}"
+    rustavailable
+  )
+  _log_step "rust.check command=${prereq_cmd[*]}"
+  "${prereq_cmd[@]}" \
+    2>&1 | tee -a "${prereq_logs[@]}" || \
     die "Rust toolchain is not ready for this kernel (make rustavailable failed). Install the Rust environment or use the Docker backend."
 }
 
 _resolve_bindgen_real() {
   if [[ -n "${LLBIC_BINDGEN_REAL:-}" && -x "${LLBIC_BINDGEN_REAL}" ]]; then
     printf '%s\n' "${LLBIC_BINDGEN_REAL}"
+    return 0
+  fi
+
+  if [[ -x "/usr/local/cargo/bin/bindgen" ]]; then
+    printf '%s\n' "/usr/local/cargo/bin/bindgen"
     return 0
   fi
 
