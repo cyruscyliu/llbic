@@ -44,7 +44,9 @@ Use the host path when:
 
 - the required host Clang version exists
 - you want the fastest local iteration
-- the local environment is already prepared for the target kernel/toolchain
+- the local environment is already prepared for the target kernel/toolchain, or
+  `llbic` can install the required host Rust toolchain automatically for
+  `--rust`
 
 Use Docker when:
 
@@ -79,6 +81,11 @@ If it does not, the command fails early and recommends using Docker. If the
 host LLVM major differs from the kernel-era default, `llbic` warns and suggests
 `LLBIC_BACKEND=docker` unless the mismatch is intentional.
 
+Rust mode is different. For `--rust`, `llbic` does not use the generic kernel
+era default and does not accept `--clang`. Instead, it normalizes the kernel
+version to a published family (`6.19`, `6.18`, `6.17`, `6.12`, `6.6`, `6.1`)
+and selects the matching LLVM+Rust toolchain for that family automatically.
+
 ## Important Commands
 
 One-shot build:
@@ -99,10 +106,10 @@ Rust-enabled build:
 ./llbic build 6.19.7 --out-of-tree --rust --json
 ```
 
-Prepare a host Rust toolchain for Rust-enabled kernel builds:
+Prepare a host Rust toolchain manually when needed:
 
 ```bash
-./scripts/install_rust_env.sh
+./scripts/install_rust_env.sh --toolchain 1.93.0
 ```
 
 Compile an already extracted tree:
@@ -136,8 +143,11 @@ kernel imports/macros such as `crate::prelude::*`, `pin_init!`, and
 `#[pin_data]`.
 
 Use `--rust` to enable Rust support, Rust samples, and the required Kconfig
-fragment for Rust-capable kernels. Do not assume that an arbitrary `.rs` path
-under `rust/` behaves like a standalone C translation unit.
+fragment for Rust-capable kernels. `llbic` also injects a small compatibility
+fragment there today, including a temporary `CONFIG_DRM_I915=n` workaround for
+the current `6.19.x` full-LTO `i915` assertion failure. Do not assume that an
+arbitrary `.rs` path under `rust/` behaves like a standalone C translation
+unit.
 
 ## Artifact Contract
 

@@ -18,7 +18,9 @@ so builds are easy to automate, inspect, and reuse.
 `llbic` now supports Rust-enabled Linux kernel builds for kernel families with
 published Rust LLVM toolchains on kernel.org (`6.19`, `6.18`, `6.17`, `6.12`,
 `6.6`, `6.1`), including scoped Rust sample targets such as
-`samples/rust/rust_print.o`.
+`samples/rust/rust_print.o`. Rust mode uses the matching LLVM toolchain set for
+the selected kernel family so the emitted C and Rust bitcode can be inspected
+with one coherent LLVM toolchain.
 
 ## For Agents
 
@@ -168,6 +170,9 @@ the Rust sample configs automatically. The current Rust path is intentionally
 gated to kernel families with published Rust LLVM toolchains on kernel.org:
 `6.19`, `6.18`, `6.17`, `6.12`, `6.6`, and `6.1`.
 
+In Rust mode, `llbic` selects the matching LLVM+Rust toolchain for the kernel
+family automatically. `--clang` is not accepted together with `--rust`.
+
 ```bash
 ./llbic build 6.19.7 --rust --out-of-tree --json
 ```
@@ -222,12 +227,12 @@ human-readable or machine-readable.
 Flags:
 
 - `--arch, -a`: `x86_64` (default), `arm`, `arm64`, `mips`, `riscv`
-- `--clang`: select the LLVM/Clang major version for the build environment
+- `--clang`: select the LLVM/Clang major version for non-Rust builds
 - `--cross`: `CROSS_COMPILE` prefix (defaults are applied for some arches; override as needed)
 - `--defconfig`: kbuild config target (default: `defconfig`)
 - `--kconfig, -K`: merge one or more Kconfig fragments into the generated `.config` (repeatable)
 - `--file, -f`: compile only selected source-relative translation units
-- `--rust`: enable Rust support, `SAMPLES`, `SAMPLES_RUST`, and the Rust sample configs automatically for supported kernel families (`6.19`, `6.18`, `6.17`, `6.12`, `6.6`, `6.1`)
+- `--rust`: enable Rust support, `SAMPLES`, `SAMPLES_RUST`, and the Rust sample configs automatically for supported kernel families (`6.19`, `6.18`, `6.17`, `6.12`, `6.6`, `6.1`); `llbic` selects the matching LLVM+Rust toolchain automatically
 - `--output, -o`: write the build to an explicit output directory; otherwise `llbic` uses `out/linux-<version>-<arch>-clang<version>/`
 - `--json`: print a structured status or manifest to stdout
 - `--verbose, -V`: pass `V=1` to the kernel build
@@ -246,10 +251,12 @@ host toolchain by default. Set `LLBIC_BACKEND=docker` when you want the
 containerized toolchain path, and use `LLBIC_REBUILD=1` to force rebuilding the
 selected Docker image.
 
-For host Rust builds, install the Rust kernel prerequisites with:
+For host Rust builds, `llbic` can prepare the required Rust toolchain
+automatically via `scripts/install_rust_env.sh` when the selected version is
+missing. You can also run it manually:
 
 ```bash
-bash scripts/install_rust_env.sh
+bash scripts/install_rust_env.sh --toolchain 1.93.0
 ```
 
 The Docker images use the same installer in system mode, so the host and
