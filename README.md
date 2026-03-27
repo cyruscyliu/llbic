@@ -15,8 +15,9 @@ so builds are easy to automate, inspect, and reuse.
 
 ## News
 
-`llbic` now supports Rust-enabled Linux kernel builds for Rust-capable kernels
-(`>= 6.19.7`), including scoped Rust sample targets such as
+`llbic` now supports Rust-enabled Linux kernel builds for kernel families with
+published Rust LLVM toolchains on kernel.org (`6.19`, `6.18`, `6.17`, `6.12`,
+`6.6`, `6.1`), including scoped Rust sample targets such as
 `samples/rust/rust_print.o`.
 
 ## For Agents
@@ -164,7 +165,8 @@ Use `build` when you want the full workflow in one command:
 
 Use `--rust` when you want `llbic` to enable Rust support, Rust samples, and
 the Rust sample configs automatically. The current Rust path is intentionally
-gated to kernels `>= 6.19.7`:
+gated to kernel families with published Rust LLVM toolchains on kernel.org:
+`6.19`, `6.18`, `6.17`, `6.12`, `6.6`, and `6.1`.
 
 ```bash
 ./llbic build 6.19.7 --rust --out-of-tree --json
@@ -225,7 +227,7 @@ Flags:
 - `--defconfig`: kbuild config target (default: `defconfig`)
 - `--kconfig, -K`: merge one or more Kconfig fragments into the generated `.config` (repeatable)
 - `--file, -f`: compile only selected source-relative translation units
-- `--rust`: enable Rust support, `SAMPLES`, `SAMPLES_RUST`, and the Rust sample configs automatically (`>= 6.19.7`)
+- `--rust`: enable Rust support, `SAMPLES`, `SAMPLES_RUST`, and the Rust sample configs automatically for supported kernel families (`6.19`, `6.18`, `6.17`, `6.12`, `6.6`, `6.1`)
 - `--output, -o`: write the build to an explicit output directory; otherwise `llbic` uses `out/linux-<version>-<arch>-clang<version>/`
 - `--json`: print a structured status or manifest to stdout
 - `--verbose, -V`: pass `V=1` to the kernel build

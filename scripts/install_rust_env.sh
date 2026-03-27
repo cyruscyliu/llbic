@@ -4,12 +4,13 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/install_rust_env.sh [--system] [--toolchain TOOLCHAIN]
+  scripts/install_rust_env.sh [--system] [--toolchain TOOLCHAIN] [--set-default]
 
 Installs a Rust toolchain suitable for Linux kernel Rust builds and bindgen use.
 
 Defaults:
   --toolchain stable
+  Does not change the rustup default toolchain unless --set-default is passed
 
 Modes:
   default   Install into the current user's ~/.cargo and ~/.rustup
@@ -36,6 +37,12 @@ log() {
 
 SYSTEM_INSTALL=0
 TOOLCHAIN="stable"
+SET_DEFAULT=0
+
+toolchain_bin() {
+  local tool="$1"
+  rustup which --toolchain "${TOOLCHAIN}" "${tool}" 2>/dev/null || true
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,6 +54,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || die "--toolchain requires a value"
       TOOLCHAIN="$2"
       shift 2
+      ;;
+    --set-default)
+      SET_DEFAULT=1
+      shift
       ;;
     --help|-h)
       usage
@@ -79,22 +90,30 @@ fi
 
 log "Installing Rust toolchain: ${TOOLCHAIN}"
 rustup toolchain install "${TOOLCHAIN}" --profile minimal
-rustup default "${TOOLCHAIN}"
-rustup component add rust-src
-rustup component add rustfmt
+if [[ "${SET_DEFAULT}" -eq 1 ]]; then
+  rustup default "${TOOLCHAIN}"
+fi
+rustup component add --toolchain "${TOOLCHAIN}" rust-src
+rustup component add --toolchain "${TOOLCHAIN}" rustfmt
 
 log "Installing bindgen-cli"
-cargo install --locked bindgen-cli --force
+cargo +"${TOOLCHAIN}" install --locked bindgen-cli --force
 
 if [[ "${SYSTEM_INSTALL}" -eq 1 ]]; then
-  for tool in cargo rustc rustup rustdoc cargo-clippy cargo-fmt rustfmt clippy-driver bindgen; do
-    if [[ -x "${CARGO_HOME}/bin/${tool}" ]]; then
-      ln -sf "${CARGO_HOME}/bin/${tool}" "/usr/local/bin/${tool}"
+  ln -sf "${CARGO_HOME}/bin/rustup" "/usr/local/bin/rustup"
+  if [[ -x "${CARGO_HOME}/bin/bindgen" ]]; then
+    ln -sf "${CARGO_HOME}/bin/bindgen" "/usr/local/bin/bindgen"
+  fi
+
+  for tool in cargo rustc rustdoc rustfmt cargo-fmt cargo-clippy clippy-driver; do
+    tool_path="$(toolchain_bin "${tool}")"
+    if [[ -n "${tool_path}" && -x "${tool_path}" ]]; then
+      ln -sf "${tool_path}" "/usr/local/bin/${tool}"
     fi
   done
 fi
 
 log "Rust environment ready"
-rustc --version
-cargo --version
+rustup run "${TOOLCHAIN}" rustc --version
+rustup run "${TOOLCHAIN}" cargo --version
 bindgen --version

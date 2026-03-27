@@ -273,7 +273,8 @@ BUILD_DIR="${LLBIC_OUTPUT:-${ROOT_DIR}/out}"
 CONF_FILE="${LLBIC_CONF:-${ROOT_DIR}/sources.conf}"
 NPROC="${NPROC:-$(nproc)}"
 : "${LLBIC_ACTIVE_BACKEND:=host}"
-MIN_RUST_KERNEL_VERSION="${LLBIC_MIN_RUST_KERNEL_VERSION:-6.19.7}"
+RUST_TOOLCHAINS_DIR="${LLBIC_RUST_TOOLCHAINS:-${SOURCES_DIR}/toolchains/rust-llvm}"
+RUST_KERNEL_TOOLCHAIN_BASE_URL="${LLBIC_RUST_TOOLCHAIN_BASE_URL:-https://mirrors.edge.kernel.org/pub/tools/llvm/rust/files}"
 JSON_OUTPUT=0
 VERBOSE=0
 LAST_SOURCE_URL=""
@@ -319,6 +320,8 @@ LLBIC_CTX_REQUESTED_FILES=()
 LLBIC_CTX_REQUESTED_RUST_TARGETS=()
 LLBIC_CTX_MAKE_TARGETS=()
 LLBIC_CTX_RUST_ENABLED=0
+LLBIC_RUST_TOOLCHAIN_PREFIX=""
+LLBIC_RUSTUP_TOOLCHAIN=""
 
 # --- Colors ---
 RED=$'\033[0;31m'
@@ -638,13 +641,6 @@ _validate_kernel_version() {
   fi
 }
 
-_require_rust_kernel_minimum() {
-  local ver="$1"
-  if ! _version_ge "${ver}" "${MIN_RUST_KERNEL_VERSION}"; then
-    die "Rust-enabled llbic currently requires kernel version >= ${MIN_RUST_KERNEL_VERSION} (got ${ver})."
-  fi
-}
-
 _validate_clang_version() {
   local ver="${1:-}"
   [[ -n "${ver}" ]] || return 0
@@ -708,6 +704,175 @@ _normalize_rust_make_target() {
 
 _version_ge() {
   printf '%s\n%s' "$2" "$1" | sort -V -C
+}
+
+_kernel_family_from_version() {
+  local kernel_ver="${1:-}"
+
+  [[ "${kernel_ver}" =~ ^([0-9]+)\.([0-9]+) ]] || \
+    die "Unable to determine kernel family from version: ${kernel_ver}"
+  printf '%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+}
+
+_rust_supported_kernel_family() {
+  local family=""
+  family="$(_kernel_family_from_version "$1")"
+
+  case "${family}" in
+    6.19|6.18|6.17|6.12|6.6|6.1)
+      printf '%s\n' "${family}"
+      ;;
+    *)
+      die "Rust-enabled llbic supports only kernel families published at kernel.org: 6.19, 6.18, 6.17, 6.12, 6.6, 6.1 (got ${1})."
+      ;;
+  esac
+}
+
+_rust_toolchain_slug_for_family() {
+  local family="${1:-}"
+
+  case "${family}" in
+    6.19|6.18|6.17|6.12) printf '%s\n' "llvm-21.1.8-rust-1.93.0" ;;
+    6.6)                 printf '%s\n' "llvm-17.0.2-rust-1.73.0" ;;
+    6.1)                 printf '%s\n' "llvm-14.0.5-rust-1.62.0" ;;
+    *) die "No Rust LLVM toolchain mapping for kernel family: ${family}" ;;
+  esac
+}
+
+_rust_version_for_family() {
+  local family="${1:-}"
+
+  case "${family}" in
+    6.19|6.18|6.17|6.12) printf '%s\n' "1.93.0" ;;
+    6.6)                 printf '%s\n' "1.73.0" ;;
+    6.1)                 printf '%s\n' "1.62.0" ;;
+    *) die "No Rust toolchain mapping for kernel family: ${family}" ;;
+  esac
+}
+
+_rust_clang_major_for_family() {
+  local family="${1:-}"
+
+  case "${family}" in
+    6.19|6.18|6.17|6.12) printf '%s\n' "21" ;;
+    6.6)                 printf '%s\n' "17" ;;
+    6.1)                 printf '%s\n' "14" ;;
+    *) die "No Rust clang mapping for kernel family: ${family}" ;;
+  esac
+}
+
+_rust_toolchain_host_arch() {
+  local host_arch=""
+  host_arch="$(uname -m)"
+
+  case "${host_arch}" in
+    x86_64|amd64) printf '%s\n' "x86_64" ;;
+    aarch64|arm64) printf '%s\n' "aarch64" ;;
+    *)
+      die "Rust LLVM toolchains are only published for x86_64 and aarch64 hosts (got ${host_arch})."
+      ;;
+  esac
+}
+
+_rust_toolchain_prefix_for_kernel() {
+  local kernel_ver="${1:-}"
+  local family=""
+  local slug=""
+  local host_arch=""
+
+  family="$(_rust_supported_kernel_family "${kernel_ver}")"
+  slug="$(_rust_toolchain_slug_for_family "${family}")"
+  host_arch="$(_rust_toolchain_host_arch)"
+  printf '%s/%s/%s/%s-%s\n' "${RUST_TOOLCHAINS_DIR%/}" "${family}" "${host_arch}" "${slug}" "${host_arch}"
+}
+
+_ensure_rust_toolchain_for_kernel() {
+  local kernel_ver="${1:-}"
+  local family=""
+  local slug=""
+  local host_arch=""
+  local archive_name=""
+  local archive_url=""
+  local cache_dir=""
+  local archive_path=""
+  local prefix=""
+
+  family="$(_rust_supported_kernel_family "${kernel_ver}")"
+  slug="$(_rust_toolchain_slug_for_family "${family}")"
+  host_arch="$(_rust_toolchain_host_arch)"
+  archive_name="${slug}-${host_arch}.tar.xz"
+  archive_url="${RUST_KERNEL_TOOLCHAIN_BASE_URL%/}/${archive_name}"
+  cache_dir="${RUST_TOOLCHAINS_DIR%/}/${family}/${host_arch}"
+  archive_path="${cache_dir}/${archive_name}"
+  prefix="${cache_dir}/${slug}-${host_arch}"
+
+  mkdir -p -- "${cache_dir}"
+
+  if [[ -x "${prefix}/bin/clang" && -x "${prefix}/bin/rustc" ]]; then
+    printf '%s\n' "${prefix}"
+    return 0
+  fi
+
+  if [[ ! -s "${archive_path}" ]]; then
+    info "Downloading Rust LLVM toolchain ${archive_name} for kernel family ${family}..."
+    _download_file "${archive_url}" "${archive_path}"
+  else
+    info "Using cached Rust LLVM archive ${archive_name}"
+  fi
+
+  rm -rf -- "${prefix}"
+  tar -xf "${archive_path}" -C "${cache_dir}"
+  [[ -x "${prefix}/bin/clang" && -x "${prefix}/bin/rustc" ]] || \
+    die "Downloaded Rust LLVM toolchain is incomplete: ${prefix}"
+
+  printf '%s\n' "${prefix}"
+}
+
+_host_bindgen_candidate() {
+  local cargo_home="${CARGO_HOME:-${HOME}/.cargo}"
+
+  if [[ -x "${cargo_home}/bin/bindgen" ]]; then
+    printf '%s\n' "${cargo_home}/bin/bindgen"
+    return 0
+  fi
+
+  if [[ -x "/usr/local/cargo/bin/bindgen" ]]; then
+    printf '%s\n' "/usr/local/cargo/bin/bindgen"
+    return 0
+  fi
+
+  command -v bindgen 2>/dev/null || true
+}
+
+_host_rust_toolchain_ready() {
+  local rust_version="${1:-}"
+
+  command -v rustup >/dev/null 2>&1 || return 1
+  rustup which --toolchain "${rust_version}" rustc >/dev/null 2>&1 || return 1
+  [[ -n "$(_host_bindgen_candidate)" ]] || return 1
+}
+
+_ensure_host_rust_env_for_kernel() {
+  local kernel_ver="${1:-}"
+  local family=""
+  local rust_version=""
+  local install_script="${ROOT_DIR}/scripts/install_rust_env.sh"
+
+  [[ "$(_runtime_execution_mode)" == "host" ]] || return 0
+
+  family="$(_rust_supported_kernel_family "${kernel_ver}")"
+  rust_version="$(_rust_version_for_family "${family}")"
+  LLBIC_RUSTUP_TOOLCHAIN="${rust_version}"
+
+  if _host_rust_toolchain_ready "${rust_version}"; then
+    return 0
+  fi
+
+  [[ -f "${install_script}" ]] || die "Rust install helper not found: ${install_script}"
+
+  info "Preparing host Rust toolchain ${rust_version} via scripts/install_rust_env.sh..."
+  bash "${install_script}" --toolchain "${rust_version}" || \
+    die "Failed to prepare host Rust toolchain ${rust_version}"
 }
 
 _resolve_clang() {
@@ -779,9 +944,14 @@ _write_rust_kconfig_fragment() {
   mkdir -p -- "$(dirname "${fragment_path}")"
 
   {
+    printf '%s\n' '# llbic Rust/LTO compatibility settings'
     printf '%s\n' 'CONFIG_RUST=y'
     printf '%s\n' 'CONFIG_SAMPLES=y'
     printf '%s\n' 'CONFIG_SAMPLES_RUST=y'
+    printf '%s\n' '# Disable i915 for now: full LTO on 6.19.x currently trips'
+    printf '%s\n' '# a BUILD_BUG_ON in drivers/gpu/drm/i915/gt/intel_gt_pm.h.'
+    printf '%s\n' 'CONFIG_DRM_I915=n'
+    printf '%s\n' 'CONFIG_SND_HDA_I915=n'
     awk '
       /^config SAMPLE_RUST_[A-Z0-9_]+$/ { symbol=$2; next }
       symbol != "" && /^[[:space:]]*bool[[:space:]]/ { print "CONFIG_" symbol "=y"; symbol=""; next }
@@ -831,26 +1001,39 @@ _require_rustavailable() {
 }
 
 _resolve_bindgen_real() {
+  local host_bindgen=""
+
   if [[ -n "${LLBIC_BINDGEN_REAL:-}" && -x "${LLBIC_BINDGEN_REAL}" ]]; then
     printf '%s\n' "${LLBIC_BINDGEN_REAL}"
     return 0
   fi
 
-  if [[ -x "/usr/local/cargo/bin/bindgen" ]]; then
-    printf '%s\n' "/usr/local/cargo/bin/bindgen"
+  host_bindgen="$(_host_bindgen_candidate)"
+  if [[ -n "${host_bindgen}" && -x "${host_bindgen}" ]]; then
+    printf '%s\n' "${host_bindgen}"
     return 0
   fi
 
-  command -v bindgen 2>/dev/null || true
+  return 0
 }
 
 _resolve_rustc_real() {
+  if [[ -n "${LLBIC_RUSTUP_TOOLCHAIN:-}" ]] && command -v rustup >/dev/null 2>&1; then
+    rustup which --toolchain "${LLBIC_RUSTUP_TOOLCHAIN}" rustc 2>/dev/null || true
+    return 0
+  fi
+
+  if [[ -n "${LLBIC_RUST_TOOLCHAIN_PREFIX:-}" && -x "${LLBIC_RUST_TOOLCHAIN_PREFIX}/bin/rustc" ]]; then
+    printf '%s\n' "${LLBIC_RUST_TOOLCHAIN_PREFIX}/bin/rustc"
+    return 0
+  fi
+
   if [[ -n "${LLBIC_RUSTC_REAL:-}" && -x "${LLBIC_RUSTC_REAL}" ]]; then
     printf '%s\n' "${LLBIC_RUSTC_REAL}"
     return 0
   fi
 
-  if command -v rustup >/dev/null 2>&1; then
+  if [[ -z "${LLBIC_RUST_TOOLCHAIN_PREFIX:-}" ]] && command -v rustup >/dev/null 2>&1; then
     rustup which rustc 2>/dev/null || true
     return 0
   fi
@@ -892,10 +1075,10 @@ _build_rust_make_wrapper_config() {
   local -n out_args=$2
   local -n out_env=$3
   local rustc_wrapper="${ROOT_DIR}/scripts/rustc-llbic-wrapper.sh"
-  local bindgen_wrapper="${ROOT_DIR}/scripts/bindgen-llbic-wrapper.sh"
   local real_rustc=""
   local real_bindgen=""
   local libclang_path=""
+  local rust_toolchain_prefix="${LLBIC_RUST_TOOLCHAIN_PREFIX:-}"
 
   out_args=()
   out_env=()
@@ -903,20 +1086,31 @@ _build_rust_make_wrapper_config() {
   [[ "${LLBIC_CTX_RUST_ENABLED:-0}" -eq 1 ]] || return 0
 
   [[ -x "${rustc_wrapper}" ]] || die "rustc wrapper not found: ${rustc_wrapper}"
-  [[ -x "${bindgen_wrapper}" ]] || die "bindgen wrapper not found: ${bindgen_wrapper}"
 
   real_rustc="$(_resolve_rustc_real)"
   [[ -n "${real_rustc}" && -x "${real_rustc}" ]] || \
-    die "rustc not found on host. Run scripts/install_rust_env.sh or use the Docker backend."
+    die "rustc not found for Rust-enabled kernel build."
 
   real_bindgen="$(_resolve_bindgen_real)"
   [[ -n "${real_bindgen}" && -x "${real_bindgen}" ]] || \
-    die "bindgen not found on host. Run scripts/install_rust_env.sh or use the Docker backend."
+    die "bindgen not found for Rust-enabled kernel build."
 
-  out_args+=("RUSTC=${rustc_wrapper}" "BINDGEN=${bindgen_wrapper}")
-  out_env+=("LLBIC_RUSTC_REAL=${real_rustc}" "LLBIC_BINDGEN_REAL=${real_bindgen}")
+  out_args+=("RUSTC=${rustc_wrapper}" "BINDGEN=${real_bindgen}")
+  out_env+=("LLBIC_RUSTC_REAL=${real_rustc}")
 
-  libclang_path="$(_bindgen_libclang_path_for_clang "${clang_bin}")"
+  if [[ -n "${rust_toolchain_prefix}" ]]; then
+    out_env+=(
+      "LLBIC_RUST_TOOLCHAIN_PREFIX=${rust_toolchain_prefix}"
+      "PATH=${rust_toolchain_prefix}/bin:${PATH}"
+    )
+    if [[ -r "${rust_toolchain_prefix}/lib/libclang.so" || -r "${rust_toolchain_prefix}/lib/libclang.so.1" ]]; then
+      libclang_path="${rust_toolchain_prefix}/lib"
+    fi
+  fi
+
+  if [[ -z "${libclang_path}" ]]; then
+    libclang_path="$(_bindgen_libclang_path_for_clang "${clang_bin}")"
+  fi
   if [[ -n "${libclang_path}" ]]; then
     out_env+=("LIBCLANG_PATH=${libclang_path}")
   fi
@@ -970,8 +1164,13 @@ _prepare_outtree_source_tree() {
 
   info "Sanitizing source tree for out-of-tree build (make mrproper)..."
   _log_step "source.prepare outtree=1 action=mrproper path=${kernel_src}"
-  make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} mrproper > /dev/null 2>&1 \
-    || die "Failed to sanitize source tree for out-of-tree build: ${kernel_src}"
+  if [[ "${VERBOSE}" -eq 1 ]]; then
+    make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} mrproper \
+      || die "Failed to sanitize source tree for out-of-tree build: ${kernel_src}"
+  else
+    make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} mrproper > /dev/null 2>&1 \
+      || die "Failed to sanitize source tree for out-of-tree build: ${kernel_src}"
+  fi
 }
 
 _llvm_make_args() {
@@ -988,7 +1187,7 @@ _llvm_make_args() {
 _opaque_pointer_disable_flags() {
   local llvm_major="${1:-}"
 
-  if [[ -n "${llvm_major}" && "${llvm_major}" -ge 15 && "${llvm_major}" -lt 17 ]]; then
+  if [[ -n "${llvm_major}" && "${llvm_major}" -eq 15 ]]; then
     printf '%s' "-Xclang -no-opaque-pointers"
   fi
 }
@@ -1741,8 +1940,13 @@ cmd_build() {
 
   kernel_ver="${kernel_ver#linux-}"
   _validate_kernel_version "${kernel_ver}"
+  local rust_kernel_family=""
+  local rust_toolchain_prefix=""
   if [[ "${rust_enabled}" -eq 1 ]]; then
-    _require_rust_kernel_minimum "${kernel_ver}"
+    [[ -z "${clang_version}" ]] || \
+      die "--clang cannot be used with --rust; llbic selects the published Rust LLVM toolchain for the kernel family automatically."
+    rust_kernel_family="$(_rust_supported_kernel_family "${kernel_ver}")"
+    clang_version="$(_rust_clang_major_for_family "${rust_kernel_family}")"
   fi
   _validate_clang_version "${clang_version}"
   [[ -z "${output_dir}" ]] || _require_one_line "output dir" "${output_dir}"
@@ -1775,8 +1979,12 @@ cmd_build() {
   fi
   local kernel_src="${SOURCES_DIR}/${kernel_name}"
   local expected_clang_version=""
-  expected_clang_version="$(_default_clang_for_kernel "${kernel_ver}")"
-  [[ -n "${clang_version}" ]] || clang_version="${expected_clang_version}"
+  if [[ "${rust_enabled}" -eq 1 ]]; then
+    expected_clang_version="${clang_version}"
+  else
+    expected_clang_version="$(_default_clang_for_kernel "${kernel_ver}")"
+    [[ -n "${clang_version}" ]] || clang_version="${expected_clang_version}"
+  fi
 
   local bc_output=""
   bc_output="$(_artifact_output_dir "${kernel_name}" "${arch}" "${clang_version}" "${output_dir}")"
@@ -1843,13 +2051,25 @@ cmd_build() {
 
   LLBIC_CTX_PHASE="preflight"
   local clang
-  clang="$(_resolve_clang "${clang_version}")"
-  _require_clang_or_suggest_docker "${clang}" "${kernel_ver}" "${expected_clang_version}"
+  if [[ "${rust_enabled}" -eq 1 ]]; then
+    _ensure_host_rust_env_for_kernel "${kernel_ver}"
+    rust_toolchain_prefix="$(_ensure_rust_toolchain_for_kernel "${kernel_ver}")"
+    LLBIC_RUST_TOOLCHAIN_PREFIX="${rust_toolchain_prefix}"
+    clang="${rust_toolchain_prefix}/bin/clang"
+    [[ -x "${clang}" ]] || die "clang not found in Rust LLVM toolchain: ${clang}"
+    _log_step "rust.toolchain family=${rust_kernel_family} prefix=${rust_toolchain_prefix}"
+  else
+    LLBIC_RUST_TOOLCHAIN_PREFIX=""
+    clang="$(_resolve_clang "${clang_version}")"
+    _require_clang_or_suggest_docker "${clang}" "${kernel_ver}" "${expected_clang_version}"
+  fi
 
   local llvm_major
   llvm_major="$(${clang} --version | grep -oP 'clang version \K[0-9]+')"
   [[ -z "${clang_version}" ]] && clang_version="${llvm_major}"
-  _warn_host_clang_mismatch "${kernel_ver}" "${llvm_major}" "${expected_clang_version}"
+  if [[ "${rust_enabled}" -ne 1 ]]; then
+    _warn_host_clang_mismatch "${kernel_ver}" "${llvm_major}" "${expected_clang_version}"
+  fi
   _log_step "compile.prepare clang=${clang} llvm_major=${llvm_major}"
   LLBIC_CTX_CLANG="${clang}"
   LLBIC_CTX_LLVM_MAJOR="${llvm_major}"
@@ -2217,7 +2437,11 @@ _compile_lto() {
     _prepare_outtree_source_tree "${kernel_src}" "${arch}" "${cross_compile}"
   else
     info "In-tree build: cleaning (make clean)..."
-    make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean > /dev/null 2>&1 || warn "make clean failed; continuing"
+    if [[ "${VERBOSE}" -eq 1 ]]; then
+      make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean || warn "make clean failed; continuing"
+    else
+      make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean > /dev/null 2>&1 || warn "make clean failed; continuing"
+    fi
   fi
   _apply_kernel_compat_fixes "${kernel_src}"
   mapfile -t make_llvm < <(_llvm_make_args "${llvm_major}")
@@ -2237,13 +2461,21 @@ _compile_lto() {
   local compat_marker="# --- kernel compat flags (auto-injected) ---"
   local kernel_makefile="${kernel_src}/Makefile"
   local marker="# --- LTO analysis flags (auto-injected) ---"
+  local opaque_marker="# --- disable opaque pointers (auto-injected) ---"
   _remove_injected_makefile_block "${kernel_makefile}" "${compat_marker}"
   _remove_injected_makefile_block "${kernel_makefile}" "${marker}"
+  _remove_injected_makefile_block "${kernel_makefile}" "${opaque_marker}"
 
   info "Generating defconfig + LTO..."
-  env "${rust_make_env[@]}" make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
-    "${rust_make_args[@]}" \
-    "${make_verbose[@]}" CC="${clang}" ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} "${make_llvm[@]}" "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
+  if [[ "${VERBOSE}" -eq 1 ]]; then
+    env "${rust_make_env[@]}" make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+      "${rust_make_args[@]}" \
+      "${make_verbose[@]}" CC="${clang}" ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} "${make_llvm[@]}" "${defconfig_target}" -j"${NPROC}"
+  else
+    env "${rust_make_env[@]}" make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+      "${rust_make_args[@]}" \
+      "${make_verbose[@]}" CC="${clang}" ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} "${make_llvm[@]}" "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
+  fi
 
   local config_path="${kernel_src}/.config"
   [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
@@ -2259,9 +2491,15 @@ _compile_lto() {
     --disable LTO_NONE \
     --disable MODVERSIONS
 
-  env "${rust_make_env[@]}" make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
-    "${rust_make_args[@]}" \
-    "${make_verbose[@]}" CC="${clang}" ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} "${make_llvm[@]}" olddefconfig -j"${NPROC}" > /dev/null 2>&1
+  if [[ "${VERBOSE}" -eq 1 ]]; then
+    env "${rust_make_env[@]}" make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+      "${rust_make_args[@]}" \
+      "${make_verbose[@]}" CC="${clang}" ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} "${make_llvm[@]}" olddefconfig -j"${NPROC}"
+  else
+    env "${rust_make_env[@]}" make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+      "${rust_make_args[@]}" \
+      "${make_verbose[@]}" CC="${clang}" ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} "${make_llvm[@]}" olddefconfig -j"${NPROC}" > /dev/null 2>&1
+  fi
 
   LLBIC_CTX_CONFIG_SHA256="$(_sha256_file "${config_path}")"
   _log_step "kconfig.final path=${config_path} sha256=${LLBIC_CTX_CONFIG_SHA256:-}"
@@ -2278,23 +2516,36 @@ EOF
   if [[ -n "${opaque_ptr_flags}" ]]; then
     cat >> "${kernel_makefile}" <<EOF
 
-# --- disable opaque pointers (auto-injected) ---
+${opaque_marker}
 KBUILD_USERCFLAGS += ${opaque_ptr_flags}
 KBUILD_CFLAGS += ${opaque_ptr_flags}
 EOF
   fi
 
   info "Preparing host tools and generated headers without IRDumper..."
-  env "${rust_make_env[@]}" make -C "${kernel_src}" \
-    "${make_extra[@]}" \
-    ARCH="${arch}" \
-    ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
-    "${make_verbose[@]}" \
-    CC="${clang}" \
-    ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} \
-    "${rust_make_args[@]}" \
-    "${make_llvm[@]}" \
-    prepare scripts -j"${NPROC}" > /dev/null 2>&1
+  if [[ "${VERBOSE}" -eq 1 ]]; then
+    env "${rust_make_env[@]}" make -C "${kernel_src}" \
+      "${make_extra[@]}" \
+      ARCH="${arch}" \
+      ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+      "${make_verbose[@]}" \
+      CC="${clang}" \
+      ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} \
+      "${rust_make_args[@]}" \
+      "${make_llvm[@]}" \
+      prepare scripts -j"${NPROC}"
+  else
+    env "${rust_make_env[@]}" make -C "${kernel_src}" \
+      "${make_extra[@]}" \
+      ARCH="${arch}" \
+      ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+      "${make_verbose[@]}" \
+      CC="${clang}" \
+      ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} \
+      "${rust_make_args[@]}" \
+      "${make_llvm[@]}" \
+      prepare scripts -j"${NPROC}" > /dev/null 2>&1
+  fi
 
   if ! grep -qF "${marker}" "${kernel_makefile}"; then
     cat >> "${kernel_makefile}" <<EOF
@@ -2336,7 +2587,7 @@ EOF
 
   _remove_injected_makefile_block "${kernel_makefile}" "${marker}"
   _remove_injected_makefile_block "${kernel_makefile}" "${compat_marker}"
-  _remove_injected_makefile_block "${kernel_makefile}" "# --- disable opaque pointers (auto-injected) ---"
+  _remove_injected_makefile_block "${kernel_makefile}" "${opaque_marker}"
 
   local search_root="${kernel_src}"
   [[ -n "${kbuild_dir}" ]] && search_root="${kbuild_dir}"
@@ -2372,7 +2623,11 @@ _compile_irdumper() {
     make_extra+=(O="${kbuild_dir}")
   else
     info "In-tree build: cleaning (make clean)..."
-    make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean > /dev/null 2>&1 || warn "make clean failed; continuing"
+    if [[ "${VERBOSE}" -eq 1 ]]; then
+      make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean || warn "make clean failed; continuing"
+    else
+      make -C "${kernel_src}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} clean > /dev/null 2>&1 || warn "make clean failed; continuing"
+    fi
   fi
   _apply_kernel_compat_fixes "${kernel_src}"
   mapfile -t make_llvm < <(_llvm_make_args "${llvm_major}")
@@ -2394,7 +2649,7 @@ _compile_irdumper() {
   local dumper_flags
   if [[ "${llvm_major}" -ge 17 ]]; then
     dumper_flags="${irdumper_analysis_flags} -fpass-plugin=${irdumper_so}"
-  elif [[ "${llvm_major}" -ge 15 ]]; then
+  elif [[ "${llvm_major}" -eq 15 ]]; then
     dumper_flags="${irdumper_analysis_flags} -Xclang -no-opaque-pointers -fpass-plugin=${irdumper_so}"
   elif [[ "${llvm_major}" -ge 14 ]]; then
     dumper_flags="${irdumper_analysis_flags} -fpass-plugin=${irdumper_so}"
@@ -2416,9 +2671,15 @@ _compile_irdumper() {
   _remove_injected_makefile_block "${kernel_makefile}" "${marker}"
 
   info "Generating defconfig..."
-  env "${rust_make_env[@]}" make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
-    "${rust_make_args[@]}" \
-    "${make_verbose[@]}" CC="${clang}" ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} "${make_llvm[@]}" "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
+  if [[ "${VERBOSE}" -eq 1 ]]; then
+    env "${rust_make_env[@]}" make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+      "${rust_make_args[@]}" \
+      "${make_verbose[@]}" CC="${clang}" ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} "${make_llvm[@]}" "${defconfig_target}" -j"${NPROC}"
+  else
+    env "${rust_make_env[@]}" make -C "${kernel_src}" "${make_extra[@]}" ARCH="${arch}" ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+      "${rust_make_args[@]}" \
+      "${make_verbose[@]}" CC="${clang}" ${clang_flags_override:+CLANG_FLAGS="${clang_flags_override}"} "${make_llvm[@]}" "${defconfig_target}" -j"${NPROC}" > /dev/null 2>&1
+  fi
 
   local config_path="${kernel_src}/.config"
   [[ -n "${kbuild_dir}" ]] && config_path="${kbuild_dir}/.config"
@@ -2435,15 +2696,27 @@ EOF
   fi
 
   info "Preparing host tools and generated headers without IRDumper..."
-  env "${rust_make_env[@]}" make -C "${kernel_src}" \
-    "${make_extra[@]}" \
-    ARCH="${arch}" \
-    ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
-    "${make_verbose[@]}" \
-    CC="${cc_wrapper}" \
-    "${rust_make_args[@]}" \
-    "${make_llvm[@]}" \
-    prepare scripts -j"${NPROC}" > /dev/null 2>&1
+  if [[ "${VERBOSE}" -eq 1 ]]; then
+    env "${rust_make_env[@]}" make -C "${kernel_src}" \
+      "${make_extra[@]}" \
+      ARCH="${arch}" \
+      ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+      "${make_verbose[@]}" \
+      CC="${cc_wrapper}" \
+      "${rust_make_args[@]}" \
+      "${make_llvm[@]}" \
+      prepare scripts -j"${NPROC}"
+  else
+    env "${rust_make_env[@]}" make -C "${kernel_src}" \
+      "${make_extra[@]}" \
+      ARCH="${arch}" \
+      ${cross_compile:+CROSS_COMPILE="${cross_compile}"} \
+      "${make_verbose[@]}" \
+      CC="${cc_wrapper}" \
+      "${rust_make_args[@]}" \
+      "${make_llvm[@]}" \
+      prepare scripts -j"${NPROC}" > /dev/null 2>&1
+  fi
 
   if ! grep -qF "${marker}" "${kernel_makefile}"; then
     cat >> "${kernel_makefile}" <<EOF
@@ -2886,7 +3159,7 @@ ${BOLD}Canonical build options:${NC}
   --kconfig, -K FILE                  Kconfig fragment to merge into .config
   --file, -f PATH                     Compile only selected C/asm targets
   --rust-target TARGET                Compile selected Rust-aware Kbuild target(s)
-  --rust                              Enable Rust support and Rust sample configs (>= 6.19.7)
+  --rust                              Enable Rust support and Rust sample configs for kernel families 6.19, 6.18, 6.17, 6.12, 6.6, and 6.1
   --output, -o DIR                    Override the exact artifact directory
   --json                              Print structured result to stdout
   --verbose, -V                       Pass V=1 to kernel make
