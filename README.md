@@ -22,22 +22,6 @@ published Rust LLVM toolchains on kernel.org (`6.19`, `6.18`, `6.17`, `6.12`,
 the selected kernel family so the emitted C and Rust bitcode can be inspected
 with one coherent LLVM toolchain.
 
-## For Agents
-
-For agent workflows, start by asking `llbic` for its command surface and prefer
-machine-readable output whenever the result will be consumed programmatically.
-For a more detailed repo-local guide, see [SKILL.md](./SKILL.md).
-
-```text
-Use ./llbic --help first to discover the available commands and flags.
-When running a build or inspection step for automation, prefer --json so the
-result can be parsed reliably. Typical flow:
-
-./llbic --help
-./llbic build 6.18.16 --out-of-tree --json
-./llbic inspect out/linux-6.18.16-x86_64-clang18/llbic.json --json
-```
-
 ## Quick start
 
 ```bash
@@ -379,8 +363,7 @@ containerized path and the image-defined toolchain selection.
 Contributions are welcome through issues and pull requests.
 
 If a change affects CLI behavior, backend selection, manifests, artifacts,
-status workflow, or agent guidance, update `README.md` and `SKILL.md` in the
-same change.
+status workflow, or agent guidance, update `README.md`.
 
 ## License
 
